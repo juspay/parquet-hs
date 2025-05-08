@@ -1,0 +1,15 @@
+[package]
+name = "parquet-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+parquet = "55.0.0"
+serde = { version = "1.0.157", features = ["derive"] }
+serde_json = {version = "1.0.94", features = ["raw_value"] }
+serde_derive = "1.0.157"
+arrow = "55.0.0"
+arrow-schema = "55.0.0"
+
+[lib]
+crate-type = ["cdylib"]
