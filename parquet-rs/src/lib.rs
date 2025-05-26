@@ -22,26 +22,13 @@ use parquet::file::properties::WriterPropertiesBuilder;
 use arrow::record_batch::RecordBatch;
 use serde_derive::Deserialize;
 use serde_json::Number;
+use arrow::array::{Int64Array, UInt64Array, Date32Array, Float64Array, StringArray, BooleanArray, ArrayRef, Array};
+use arrow::datatypes::{Int64Type, UInt64Type, Float64Type, Date32Type };
+use arrow::array::PrimitiveArray;
 
-// #[derive(Serialize, Deserialize, Debug)]
-// pub struct WriterSession {
-//   writer: SerializedFileWriter<File>,
-// }
-//
-//
-//
-//
-// #[derive(Deserialize)]
-// pub enum Types {
-//     Null,
-//     Bool(bool),
-//     Number(Number),
-//     String(String),
-// }
-
-struct ParquetSession {
+pub struct ParquetSession {
     writer: ArrowWriter<File>,
-    schema: String
+    schema: Schema
 }
 
 impl ParquetSession {
@@ -50,59 +37,104 @@ impl ParquetSession {
     pub extern "C" fn new(
         schema_ptr: *const u8,
         schema_length: usize,
-        types_map_ptr: *const u8,
-        types_map_length: usize,
         file_path_ptr: *const u8,
         file_path_length: usize,
         props_ptr: *const u8,
         props_length: usize) -> *mut ParquetSession {
 
-        // if message_type_ptr.is_null() || types_map_ptr.is_null() || file_path_ptr.is_null() {
-        //     return Err(ParquetError::General(format!("pointer pass were null")))
-        // }
-
         unsafe {
             let schema_str = ptr_to_string(schema_ptr, schema_length);
-            let types_map = ptr_to_string(types_map_ptr, types_map_length);
+            // let types_map = ptr_to_string(types_map_ptr, types_map_length);
             let file_path = ptr_to_string(file_path_ptr, file_path_length);
-            let props_str = ptr_to_string(props_ptr, props_length);
-            let props_json = serde_json::from_str(props_str.as_str());
+            let props = ptr_to_string(props_ptr, props_length);
+            let file = fs::File::create(file_path.clone()).unwrap();
+            let writer_props = Self::set_writer_props(props);
+            let schema = Self::schema_from_json(schema_str.clone());
+            let schema_arc = Arc::new(schema.clone());
+            let arrow_writer = ArrowWriter::try_new(file, schema_arc, Some(writer_props)).unwrap();
 
-            let props = Arc::new(WriterProperties::builder().build());
-            let file = fs::File::create(file_path).unwrap();
-
-            Self::set_writer_props(props_json.unwrap());
-            let schema = Arc::new(Self::schema_from_json(schema_str.clone()));
-            let arrow_writer = ArrowWriter::try_new(file, schema, None).unwrap();
-
-            Box::into_raw(Box::new(ParquetSession {writer: arrow_writer,
-                                                   schema: schema_str
-                                                              }))
+            Box::into_raw(Box::new(ParquetSession {
+                writer: arrow_writer,
+                schema: schema
+            }))
         }
     }
 
-    // #[no_mangle]
-    // pub extern "C" fn write_batch(
-    //     sess_ptr: *mut ParquetSession,
-    //     batch: *const u8,
-    //     batch_length: *const u8) -> Result<FileMetaData, ParquetError>{
+    #[no_mangle]
+    pub extern "C" fn write_batch(
+        sess_ptr: *mut ParquetSession,
+        batch: *const u8,
+        batch_length: usize) -> *mut ParquetSession{
 
+        unsafe {
 
-    // }
+            let mut ps = Box::from_raw(sess_ptr);
+            let batch_string = ptr_to_string(batch, batch_length);
+            let rb = Self::create_record_batch(ps.schema.clone(), batch_string);
 
+            ps.writer.write(&rb).unwrap();
+            Box::into_raw(Box::new(ParquetSession {
+                writer: ps.writer,
+                schema: ps.schema
+            }))
+        }
+    }
+
+    #[no_mangle]
+    pub extern "C" fn flush_row_group(
+        sess_ptr: *mut ParquetSession) -> *mut ParquetSession{
+        unsafe {
+            let mut ps = Box::from_raw(sess_ptr);
+            println!("flushing");
+            ps.writer.flush().unwrap();
+            Box::into_raw(Box::new(ParquetSession {
+                writer: ps.writer,
+                schema: ps.schema
+            }))
+
+        }
+    }
+
+    #[no_mangle]
+    pub extern "C" fn close_writer(
+        sess_ptr: *mut ParquetSession){
+        unsafe {
+            let ps = Box::from_raw(sess_ptr);
+            println!("closing writer");
+            ps.writer.close().unwrap();
+        }
+    }
 
     //helper functions
 
-    fn set_writer_props(props: String) -> WriterProperties {
+    pub fn set_writer_props(props: String) -> WriterProperties { // remove pub after testing
         // properties keys are setter funtion names as in WriterPropertiesBuilder
 
+        let empty = vec![];
+
         let props_json : Value = serde_json::from_str(props.as_str()).unwrap();
-        let bloom_filter_position_str = props_json.get("set_bloom_filter_position").and_then(|v| v.as_str()).unwrap_or("AfterRowGroup");
-        let compression = Compression::from_str(props_json.get("set_compression").and_then(|v| v.as_str()).unwrap_or("UNCOMPRESSED")).unwrap();
-        let enable_bloom_filter = props_json.get("set_bloom_filter_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-        let compression_col_names = props_json.get("set_column_compression").and_then(|v| v.get("columns")).and_then(|v| v.as_array()).unwrap();
-        let compression_col_encoding = props_json.get("set_column_compression").and_then(|v| v.get("encodings")).and_then(|v| v.as_array()).unwrap();
-        let max_row_group_size = props_json.get("set_max_row_group_size").and_then(|v| v.as_u64()).unwrap();
+        let bloom_filter_position_str = props_json.get("set_bloom_filter_position").and_then(|v| v.as_str()).unwrap_or_else(|| {
+            println!("set_bloom_filter_position: Key not found, using default as AfterRowGroup");
+            "AfterRowGroup"
+        });
+        let compression = Compression::from_str(props_json.get("set_compression").and_then(|v| v.as_str()).unwrap_or_else(|| {
+            println!("set_compression: Key not found, using default as UNCOMPRESSED");
+            "UNCOMPRESSED"
+        })).unwrap();
+        let enable_bloom_filter = props_json.get("set_bloom_filter_enabled").and_then(|v| v.as_bool()).unwrap_or_else(|| {
+            println!("enable_bloom_filter: Key not found, using default as false");
+            false
+        });
+        let compression_col_names = props_json.get("set_compression_column_names").and_then(|v| v.get("columns")).and_then(|v| v.as_array()).unwrap_or_else(|| {
+            println!("set_compression_column_names : Key not found, not setting any compression encodings for columns");
+            &empty
+        });
+        let compression_col_encodings = props_json.get("set_compression_column_encodings").and_then(|v| v.get("encodings")).and_then(|v| v.as_array()).unwrap_or_else(|| {
+            println!("set_compression_column_encodings : Key not found, not setting any compression encodings for columns");
+            &empty
+        });
+
+        let max_row_group_size = props_json.get("set_max_row_group_size").and_then(|v| v.as_u64()).unwrap_or(100000);
 
         let bloom_filter_position = match bloom_filter_position_str {
             "End" => BloomFilterPosition::End,
@@ -115,16 +147,21 @@ impl ParquetSession {
         props = props.set_compression(compression);
         props = props.set_max_row_group_size(max_row_group_size.try_into().unwrap());
 
-
-        for i in 0..compression_col_names.len(){
-            let c = Compression::from_str(compression_col_encoding[i].as_str().unwrap_or("UNCOMPRESSED")).unwrap();
-            props = props.set_column_compression(ColumnPath::from(compression_col_names[i].to_string()), c);
+        if compression_col_names.len() == compression_col_encodings.len() {
+            for i in 0..compression_col_names.len(){
+                let c = Compression::from_str(compression_col_encodings[i].as_str().unwrap_or("UNCOMPRESSED")).unwrap();
+                props = props.set_column_compression(ColumnPath::from(compression_col_names[i].to_string()), c);
+            }
+        }
+        else {
+            println!("Couldn't set column encoding as number of cols doesn't match given number of encodings");
         }
 
+        println!("Properties Set");
         props.build()
     }
 
-    fn schema_from_json(schema_str: String) -> Schema{
+    pub fn schema_from_json(schema_str: String) -> Schema{
         // schema is of form:
         // {
         //   column_name : {
@@ -144,9 +181,9 @@ impl ParquetSession {
         if let Value::Object(map) = schema_json {
             for (key, inner_val) in map {
                 if let Value::Object(inner_map) = inner_val {
-                    let a = inner_map.get("a").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let b = inner_map.get("b").and_then(|v| v.as_bool()).unwrap_or(false);
-                    result.push((key, a, b));
+                    let datatype = inner_map.get("datatype").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let nullable = inner_map.get("nullable").and_then(|v| v.as_bool()).unwrap_or(false);
+                    result.push((key, datatype, nullable));
                 }
             }
         }
@@ -158,20 +195,29 @@ impl ParquetSession {
     }
 
     fn create_schema_field(col_name: String, col_type_str: String, nullable: bool) -> Field {
-        // convert string to datatype
         let col_type: DataType = col_type_str.parse().unwrap();
         Field::new(col_name, col_type, nullable)
     }
 
-    fn create_record_batch(schema: Schema, batch: String) -> RecordBatch{
+    pub fn create_record_batch(schema: Schema, batch: String) -> RecordBatch{
         let rows: Vec<Vec<Value>> = serde_json::from_str(batch.as_str()).unwrap();
 
-        let columnar = transpose(rows);
+        let columnar = Self::transpose(rows);
 
-        let rec_batch = RecordBatch::try_new(
+        let fields = schema.fields();
+        let types: Vec<&DataType> = fields.into_iter().map(|f| {
+            f.data_type()
+        }).collect();
+
+        let columns: Vec<Arc<dyn Array>> = (0..columnar.len())
+            .map(|i| {
+                Self::types_to_arrow_array(columnar[i].clone(), types[i].clone())
+            }).collect();
+
+        RecordBatch::try_new(
             Arc::new(schema),
-            rows
-        );
+            columns
+        ).unwrap()
     }
 
     fn transpose(mut v: Vec<Vec<Value>>) -> Vec<Vec<Value>> {
@@ -188,46 +234,58 @@ impl ParquetSession {
             .collect()
     }
 
+    fn types_to_arrow_array(column: Vec<Value>, col_type: DataType) -> ArrayRef {
 
-    // fn get
+        match col_type {
+            DataType::Int32 => {
+                let col: PrimitiveArray<Int64Type> = column.into_iter().map(|v| {
+                    v.as_i64()
+                }).collect();
+                Arc::new(Int64Array::from(col)) as ArrayRef
+            }
+            DataType::UInt32 => {
+                let col: PrimitiveArray<UInt64Type> = column.into_iter().map(|v| {
+                    v.as_u64()
+                }).collect();
+                Arc::new(UInt64Array::from(col)) as ArrayRef
+            }
+            DataType::Float32 => {
+                let col: PrimitiveArray<Float64Type> = column.into_iter().map(|v| {
+                    v.as_f64()
+                }).collect();
+                Arc::new(Float64Array::from(col)) as ArrayRef
+            }
+            DataType::Utf8 => {
+                let col_vec: Vec<String>  = column.into_iter().map(|v| {
+                    v.to_string()
+                }).collect();
+                Arc::new(StringArray::from(col_vec)) as ArrayRef
+            }
 
-    // #[no_mangel]
-    // pub extern "C" fn create_writer(ps_ptr: *mut ParquetSession){
-    //     unsafe {
-    //         let mut ps = unsafe{Box::from_raw(ps_ptr)};
+            // DataType::Date32 => {
+            //     let col: PrimitiveArray<Date32Type> = column.into_iter().map(|v| {
+            //         v.to_string()
+            //     }).collect();
+            //     Arc::new(Date32Array::from(col)) as ArrayRef
+            // }
 
-    //         let writer
-    //      }
-    // }
+            DataType::Boolean => {
+                let col: Vec<Option<bool>> = column.into_iter().map(|v| {
+                    v.as_bool()
+                }).collect();
 
-    //  #[no_mangle]
-    //  pub extern "C" fn write_batch(
-    //      ps_ptr: *mut ParquetSession,
-    //      batch_path_ptr: *const u8,
-    //      batch_path_length: usize) {
+                Arc::new(BooleanArray::from(col)) as ArrayRef
+            }
 
-    //      unsafe {
-    //          let mut ps = unsafe{Box::from_raw(ps_ptr)};
-    //          let mut row_group_writer = ps.writer.next_row_group().unwrap();
-    //          let id_writer = row_group_writer.next_column().unwrap();
-    //          let batch_file_path = ptr_to_string(batch_path_ptr, batch_path_length);
+            _ =>  {
+                let col: Vec<Option<String>> = column.into_iter().map(|_| {
+                   None
+                }).collect();
 
-
-
-
-    //      }
-
-
-
-
-
-    //      // [1, 2, 3].into_iter().map(|x| x + 1).rev().collect();
-
-    //      // remember to flush rgw
-    //      // row_group_writer.close()
-
-    //  }
-
+                Arc::new(StringArray::from(col)) as ArrayRef
+            }
+        }
+    }
 
 }
 
