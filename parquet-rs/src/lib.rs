@@ -25,6 +25,9 @@ use serde_json::Number;
 use arrow::array::{Int64Array, UInt64Array, Date32Array, Float64Array, StringArray, BooleanArray, ArrayRef, Array};
 use arrow::datatypes::{Int64Type, UInt64Type, Float64Type, Date32Type };
 use arrow::array::PrimitiveArray;
+use indexmap::IndexMap;
+
+type OrderedJsonMap = IndexMap<String, Value>;
 
 pub struct ParquetSession {
     writer: ArrowWriter<File>,
@@ -53,6 +56,8 @@ impl ParquetSession {
             let schema_arc = Arc::new(schema.clone());
             let arrow_writer = ArrowWriter::try_new(file, schema_arc, Some(writer_props)).unwrap();
 
+
+            println!("{:?}", schema);
             Box::into_raw(Box::new(ParquetSession {
                 writer: arrow_writer,
                 schema: schema
@@ -64,34 +69,25 @@ impl ParquetSession {
     pub extern "C" fn write_batch(
         sess_ptr: *mut ParquetSession,
         batch: *const u8,
-        batch_length: usize) -> *mut ParquetSession{
+        batch_length: usize){
 
         unsafe {
 
-            let mut ps = Box::from_raw(sess_ptr);
+            let ps = &mut *sess_ptr;
             let batch_string = ptr_to_string(batch, batch_length);
             let rb = Self::create_record_batch(ps.schema.clone(), batch_string);
 
             ps.writer.write(&rb).unwrap();
-            Box::into_raw(Box::new(ParquetSession {
-                writer: ps.writer,
-                schema: ps.schema
-            }))
         }
     }
 
     #[no_mangle]
     pub extern "C" fn flush_row_group(
-        sess_ptr: *mut ParquetSession) -> *mut ParquetSession{
+        sess_ptr: *mut ParquetSession){
         unsafe {
-            let mut ps = Box::from_raw(sess_ptr);
+            let ps = &mut *sess_ptr;
             println!("flushing");
             ps.writer.flush().unwrap();
-            Box::into_raw(Box::new(ParquetSession {
-                writer: ps.writer,
-                schema: ps.schema
-            }))
-
         }
     }
 
@@ -173,24 +169,27 @@ impl ParquetSession {
         //   .
         // }
         //
+        //
+        let schema_json: OrderedJsonMap = serde_json::from_str(schema_str.as_str()).unwrap();
 
-        let schema_json: Value = serde_json::from_str(schema_str.as_str()).unwrap();
+        println!("{:?}", schema_json);
+
+        // let schema_json: Value = serde_json::from_str(schema_str.as_str()).unwrap();
 
         let mut result: Vec<(String, String, bool)> = Vec::new();
 
-        if let Value::Object(map) = schema_json {
-            for (key, inner_val) in map {
+        // if let Value::Object(map) = schema_json {
+            for (key, inner_val) in schema_json {
                 if let Value::Object(inner_map) = inner_val {
                     let datatype = inner_map.get("datatype").and_then(|v| v.as_str()).unwrap_or("").to_string();
                     let nullable = inner_map.get("nullable").and_then(|v| v.as_bool()).unwrap_or(false);
                     result.push((key, datatype, nullable));
                 }
             }
-        }
+        // }
 
         let schema_fields : Vec<Field> = result.into_iter().map(|(col_name, col_type_str, nullable)| {
             Self::create_schema_field(col_name, col_type_str, nullable)}).collect();
-
         Schema::new(schema_fields)
     }
 
@@ -200,9 +199,9 @@ impl ParquetSession {
     }
 
     pub fn create_record_batch(schema: Schema, batch: String) -> RecordBatch{
-        let rows: Vec<Vec<Value>> = serde_json::from_str(batch.as_str()).unwrap();
+        let columnar: Vec<Vec<Value>> = serde_json::from_str(batch.as_str()).unwrap();
 
-        let columnar = Self::transpose(rows);
+        // let columnar = Self::transpose(rows);
 
         let fields = schema.fields();
         let types: Vec<&DataType> = fields.into_iter().map(|f| {
@@ -213,6 +212,9 @@ impl ParquetSession {
             .map(|i| {
                 Self::types_to_arrow_array(columnar[i].clone(), types[i].clone())
             }).collect();
+
+        println!("{:?}", columns);
+        println!("{:?}", types);
 
         RecordBatch::try_new(
             Arc::new(schema),
@@ -237,19 +239,19 @@ impl ParquetSession {
     fn types_to_arrow_array(column: Vec<Value>, col_type: DataType) -> ArrayRef {
 
         match col_type {
-            DataType::Int32 => {
+            DataType::Int64 => {
                 let col: PrimitiveArray<Int64Type> = column.into_iter().map(|v| {
                     v.as_i64()
                 }).collect();
                 Arc::new(Int64Array::from(col)) as ArrayRef
             }
-            DataType::UInt32 => {
+            DataType::UInt64 => {
                 let col: PrimitiveArray<UInt64Type> = column.into_iter().map(|v| {
                     v.as_u64()
                 }).collect();
                 Arc::new(UInt64Array::from(col)) as ArrayRef
             }
-            DataType::Float32 => {
+            DataType::Float64 => {
                 let col: PrimitiveArray<Float64Type> = column.into_iter().map(|v| {
                     v.as_f64()
                 }).collect();

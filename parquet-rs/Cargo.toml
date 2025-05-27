@@ -10,6 +10,7 @@ serde_json = {version = "1.0.94", features = ["raw_value"] }
 serde_derive = "1.0.157"
 arrow = "55.0.0"
 arrow-schema = "55.0.0"
+indexmap = { version = "2.0", features = ["serde"] }
 
 [lib]
 crate-type = ["cdylib"]
