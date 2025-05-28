@@ -182,7 +182,7 @@ impl ParquetSession {
             for (key, inner_val) in schema_json {
                 if let Value::Object(inner_map) = inner_val {
                     let datatype = inner_map.get("datatype").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let nullable = inner_map.get("nullable").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let nullable = inner_map.get("nullable").and_then(|v| v.as_bool()).unwrap_or(true);
                     result.push((key, datatype, nullable));
                 }
             }
@@ -258,8 +258,16 @@ impl ParquetSession {
                 Arc::new(Float64Array::from(col)) as ArrayRef
             }
             DataType::Utf8 => {
-                let col_vec: Vec<String>  = column.into_iter().map(|v| {
-                    v.to_string()
+                let col_vec: Vec<Option<String>>  = column.into_iter().map(|v| {
+                    let mut entry = v.to_string();
+                    entry.trim_ascii();
+                    entry.make_ascii_uppercase();
+                    if entry == "NULL"{
+                        None
+                    }
+                    else {
+                        Some(entry)
+                    }
                 }).collect();
                 Arc::new(StringArray::from(col_vec)) as ArrayRef
             }
