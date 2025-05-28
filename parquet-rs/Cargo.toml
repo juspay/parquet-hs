@@ -11,6 +11,7 @@ serde_derive = "1.0.157"
 arrow = "55.0.0"
 arrow-schema = "55.0.0"
 indexmap = { version = "2.0", features = ["serde"] }
+chrono = "0.4.41"
 
 [lib]
 crate-type = ["cdylib"]

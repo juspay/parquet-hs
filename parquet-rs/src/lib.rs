@@ -10,7 +10,7 @@ use parquet::errors::ParquetError;
 use std::ffi::CString;
 use std::os::raw::c_char;
 use parquet::arrow::ArrowWriter;
-use arrow_schema::DataType;
+use arrow_schema::{DataType, TimeUnit};
 use arrow_schema::Field;
 use arrow::datatypes::Schema;
 use parquet::schema::types::ColumnPath;
@@ -22,10 +22,13 @@ use parquet::file::properties::WriterPropertiesBuilder;
 use arrow::record_batch::RecordBatch;
 use serde_derive::Deserialize;
 use serde_json::Number;
-use arrow::array::{Int64Array, UInt64Array, Date32Array, Float64Array, StringArray, BooleanArray, ArrayRef, Array};
-use arrow::datatypes::{Int64Type, UInt64Type, Float64Type, Date32Type };
+use arrow::array::{Int64Array, UInt64Array, Date32Array, Float64Array, StringArray, BooleanArray, ArrayRef, Array, TimestampMicrosecondArray,};
+use arrow::datatypes::{Int64Type, UInt64Type, Float64Type, Date32Type, TimestampSecondType, ArrowTimestampType, TimestampMicrosecondType};
 use arrow::array::PrimitiveArray;
 use indexmap::IndexMap;
+use chrono::{NaiveDate, NaiveDateTime};
+
+
 
 type OrderedJsonMap = IndexMap<String, Value>;
 
@@ -47,7 +50,6 @@ impl ParquetSession {
 
         unsafe {
             let schema_str = ptr_to_string(schema_ptr, schema_length);
-            // let types_map = ptr_to_string(types_map_ptr, types_map_length);
             let file_path = ptr_to_string(file_path_ptr, file_path_length);
             let props = ptr_to_string(props_ptr, props_length);
             let file = fs::File::create(file_path.clone()).unwrap();
@@ -274,10 +276,33 @@ impl ParquetSession {
 
             // DataType::Date32 => {
             //     let col: PrimitiveArray<Date32Type> = column.into_iter().map(|v| {
-            //         v.to_string()
+            //         // let nd = NaiveDate::parse_from_str(v, "%Y-%m-%dT%H:%M:%S");
+            //         // Date32Type::from_naive_date(nd)
+            //         match NaiveDate::parse_from_str(v.as_str().unwrap_or("null"), "%Y-%m-%dT%H:%M:%SZ") {
+            //             Ok(nd) => Some(Date32Type::from_naive_date(nd)),
+            //             Err(e) => {
+            //                 // eprintln!("Invalid date: {} ({})", v, e);
+            //                 None
+            //             }
+            //         }
             //     }).collect();
             //     Arc::new(Date32Array::from(col)) as ArrayRef
             // }
+
+            DataType::Timestamp(TimeUnit::Microsecond, _) => {
+                let col: PrimitiveArray<TimestampMicrosecondType> = column.into_iter().map(|v| {
+                    match NaiveDateTime::parse_from_str(v.as_str().unwrap_or("null"), "%FT%T%.fZ")
+                        .or_else(|_|
+                        NaiveDateTime::parse_from_str(v.as_str().unwrap_or("null"), "%F %T%.f"))
+                    {
+                        Ok(ndt) => TimestampMicrosecondType::make_value(ndt),
+                        Err(e) => {
+                            None
+                        }
+                    }
+                }).collect();
+                Arc::new(TimestampMicrosecondArray::from(col)) as ArrayRef
+            }
 
             DataType::Boolean => {
                 let col: Vec<Option<bool>> = column.into_iter().map(|v| {
@@ -302,51 +327,3 @@ impl ParquetSession {
 unsafe fn ptr_to_string(ptr: *const u8, len: usize) -> String {
     std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_owned()
 }
-
-// #[no_mangle]
-// pub extern "C" fn init_parquet_writer(
-//     message_type_ptr: *const u8,
-//     message_type_length: usize,
-//     types_map_ptr: *const u8,
-//     types_map_length: usize,
-//     file_path_ptr: *const u8,
-//     file_path_length: usize) -> *mut SerializedFileWriter<File> {
-
-//     // if message_type_ptr.is_null() || types_map_ptr.is_null() || file_path_ptr.is_null() {
-//     //     return Err(ParquetError::General(format!("pointer pass were null")))
-//     // }
-
-//     unsafe {
-//         let message_type = ptr_to_string(message_type_ptr, message_type_length);
-//         let types_map = ptr_to_string(types_map_ptr, types_map_length);
-//         let file_path = ptr_to_string(file_path_ptr, file_path_length);
-
-//         let schema = Arc::new(parse_message_type(message_type.as_str()).unwrap());
-//         let props = Arc::new(WriterProperties::builder().build());
-//         let file = fs::File::create(file_path).unwrap();
-
-//         let writer = SerializedFileWriter::new(file, schema, props).unwrap();
-//         Box::into_raw(Box::new(writer))
-//     }
-
-// }
-
-
-// // #[no_mangle]
-// // pub extern "C" fn write_row<'a>(message_type: &'a str, types: &'a [&'a str], file_path: &'a str) -> SerializedFileWriter<File> {
-// // }
-
-// // #[no_mangle]
-// // pub extern "C" fn flush_writer<'a>(message_type: &'a str, types: &'a [&'a str], file_path: &'a str) -> SerializedFileWriter<File> {
-// // }
-
-// #[no_mangle]
-// pub extern "C" fn close_writer(writer: SerializedFileWriter<File>) -> Result<FileMetaData, ParquetError>{
-//     writer.close()
-// }
-
-
-
-// pub fn add(left: u64, right: u64) -> u64 {
-//     left + right
-// }
