@@ -1,0 +1,10 @@
+{
+    "merchant_id" : {
+      "datatype" : "Utf8",
+      "nullable" : false
+    },
+    "order_id" : {
+      "datatype" : "Utf8",
+      "nullable" : false
+    }
+}
