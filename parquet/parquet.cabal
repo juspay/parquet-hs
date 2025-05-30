@@ -109,7 +109,8 @@ executable parquet-ffi-test
                       parquet,
                       bytestring,
                       conduit,
-                      text
+                      text,
+                      aeson
     -- Directories containing source files.
     hs-source-dirs:   parquet-ffi-test/src
 

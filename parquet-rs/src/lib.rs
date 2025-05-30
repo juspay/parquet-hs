@@ -132,7 +132,7 @@ impl ParquetSession {
             &empty
         });
 
-        let max_row_group_size = props_json.get("set_max_row_group_size").and_then(|v| v.as_u64()).unwrap_or(100000);
+        let max_row_group_size = props_json.get("set_max_row_group_size").and_then(|v| v.as_u64()).unwrap_or(4056);
 
         let bloom_filter_position = match bloom_filter_position_str {
             "End" => BloomFilterPosition::End,
@@ -174,11 +174,22 @@ impl ParquetSession {
         //
         let schema_json: OrderedJsonMap = serde_json::from_str(schema_str.as_str()).unwrap();
 
-        println!("{:?}", schema_json);
-
         // let schema_json: Value = serde_json::from_str(schema_str.as_str()).unwrap();
 
+        println!("{:?}", schema_json);
+
         let mut result: Vec<(String, String, bool)> = Vec::new();
+
+        // if let Value::Object(map) = schema_json {
+        //     for (key, inner_val) in map {
+        //         if let Value::Object(inner_map) = inner_val {
+        //             let datatype = inner_map.get("datatype").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        //             let nullable = inner_map.get("nullable").and_then(|v| v.as_bool()).unwrap_or(true);
+        //             result.push((key, datatype, nullable));
+        //         }
+        //     }
+        // }
+
 
         // if let Value::Object(map) = schema_json {
             for (key, inner_val) in schema_json {
@@ -196,14 +207,12 @@ impl ParquetSession {
     }
 
     fn create_schema_field(col_name: String, col_type_str: String, nullable: bool) -> Field {
-        let col_type: DataType = col_type_str.parse().unwrap();
+        let col_type: DataType = col_type_str.parse().unwrap_or(DataType::Utf8);
         Field::new(col_name, col_type, nullable)
     }
 
     pub fn create_record_batch(schema: Schema, batch: String) -> RecordBatch{
         let columnar: Vec<Vec<Value>> = serde_json::from_str(batch.as_str()).unwrap();
-
-        // let columnar = Self::transpose(rows);
 
         let fields = schema.fields();
         let types: Vec<&DataType> = fields.into_iter().map(|f| {
@@ -224,20 +233,6 @@ impl ParquetSession {
         ).unwrap()
     }
 
-    fn transpose(mut v: Vec<Vec<Value>>) -> Vec<Vec<Value>> {
-        assert!(!v.is_empty());
-        for inner in &mut v {
-            inner.reverse();
-        }
-        (0..v[0].len())
-            .map(|_| {
-                v.iter_mut()
-                 .map(|inner| inner.pop().unwrap())
-                 .collect::<Vec<Value>>()
-            })
-            .collect()
-    }
-
     fn types_to_arrow_array(column: Vec<Value>, col_type: DataType) -> ArrayRef {
 
         match col_type {
@@ -247,18 +242,21 @@ impl ParquetSession {
                 }).collect();
                 Arc::new(Int64Array::from(col)) as ArrayRef
             }
+
             DataType::UInt64 => {
                 let col: PrimitiveArray<UInt64Type> = column.into_iter().map(|v| {
                     v.as_u64()
                 }).collect();
                 Arc::new(UInt64Array::from(col)) as ArrayRef
             }
+
             DataType::Float64 => {
                 let col: PrimitiveArray<Float64Type> = column.into_iter().map(|v| {
                     v.as_f64()
                 }).collect();
                 Arc::new(Float64Array::from(col)) as ArrayRef
             }
+
             DataType::Utf8 => {
                 let col_vec: Vec<Option<String>>  = column.into_iter().map(|v| {
                     let mut entry = v.to_string();
@@ -274,22 +272,7 @@ impl ParquetSession {
                 Arc::new(StringArray::from(col_vec)) as ArrayRef
             }
 
-            // DataType::Date32 => {
-            //     let col: PrimitiveArray<Date32Type> = column.into_iter().map(|v| {
-            //         // let nd = NaiveDate::parse_from_str(v, "%Y-%m-%dT%H:%M:%S");
-            //         // Date32Type::from_naive_date(nd)
-            //         match NaiveDate::parse_from_str(v.as_str().unwrap_or("null"), "%Y-%m-%dT%H:%M:%SZ") {
-            //             Ok(nd) => Some(Date32Type::from_naive_date(nd)),
-            //             Err(e) => {
-            //                 // eprintln!("Invalid date: {} ({})", v, e);
-            //                 None
-            //             }
-            //         }
-            //     }).collect();
-            //     Arc::new(Date32Array::from(col)) as ArrayRef
-            // }
-
-            DataType::Timestamp(TimeUnit::Microsecond, _) => {
+            DataType::Timestamp(TimeUnit::Microsecond, None) => {
                 let col: PrimitiveArray<TimestampMicrosecondType> = column.into_iter().map(|v| {
                     match NaiveDateTime::parse_from_str(v.as_str().unwrap_or("null"), "%FT%T%.fZ")
                         .or_else(|_|
