@@ -62,8 +62,8 @@ library
     -- Modules exported by the library.
     exposed-modules:  ParquetFFI
 
-    extra-libraries:  parquet_rs
-    extra-lib-dirs :  /Users/fazal.mohammad/Work/parquet-ffi/parquet-rs/target/release
+    extra-libraries:  parquet-rs
+    -- extra-lib-dirs :  /Users/fazal.mohammad/Work/parquet-ffi/parquet-rs/target/release
 
     -- Modules included in this library but not exported.
     -- other-modules:

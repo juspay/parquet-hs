@@ -58,7 +58,6 @@ impl ParquetSession {
             let schema_arc = Arc::new(schema.clone());
             let arrow_writer = ArrowWriter::try_new(file, schema_arc, Some(writer_props)).unwrap();
 
-
             println!("{:?}", schema);
             Box::into_raw(Box::new(ParquetSession {
                 writer: arrow_writer,
@@ -105,7 +104,7 @@ impl ParquetSession {
 
     //helper functions
 
-    pub fn set_writer_props(props: String) -> WriterProperties { // remove pub after testing
+    fn set_writer_props(props: String) -> WriterProperties {
         // properties keys are setter funtion names as in WriterPropertiesBuilder
 
         let empty = vec![];
@@ -159,7 +158,7 @@ impl ParquetSession {
         props.build()
     }
 
-    pub fn schema_from_json(schema_str: String) -> Schema{
+    fn schema_from_json(schema_str: String) -> Schema{
         // schema is of form:
         // {
         //   column_name : {
@@ -190,16 +189,13 @@ impl ParquetSession {
         //     }
         // }
 
-
-        // if let Value::Object(map) = schema_json {
-            for (key, inner_val) in schema_json {
-                if let Value::Object(inner_map) = inner_val {
-                    let datatype = inner_map.get("datatype").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let nullable = inner_map.get("nullable").and_then(|v| v.as_bool()).unwrap_or(true);
-                    result.push((key, datatype, nullable));
-                }
+        for (key, inner_val) in schema_json {
+            if let Value::Object(inner_map) = inner_val {
+                let datatype = inner_map.get("datatype").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let nullable = inner_map.get("nullable").and_then(|v| v.as_bool()).unwrap_or(true);
+                result.push((key, datatype, nullable));
             }
-        // }
+        }
 
         let schema_fields : Vec<Field> = result.into_iter().map(|(col_name, col_type_str, nullable)| {
             Self::create_schema_field(col_name, col_type_str, nullable)}).collect();
@@ -211,7 +207,7 @@ impl ParquetSession {
         Field::new(col_name, col_type, nullable)
     }
 
-    pub fn create_record_batch(schema: Schema, batch: String) -> RecordBatch{
+    fn create_record_batch(schema: Schema, batch: String) -> RecordBatch{
         let columnar: Vec<Vec<Value>> = serde_json::from_str(batch.as_str()).unwrap();
 
         let fields = schema.fields();
@@ -224,8 +220,8 @@ impl ParquetSession {
                 Self::types_to_arrow_array(columnar[i].clone(), types[i].clone())
             }).collect();
 
-        println!("{:?}", columns);
-        println!("{:?}", types);
+        // println!("{:?}", columns);
+        // println!("{:?}", types);
 
         RecordBatch::try_new(
             Arc::new(schema),

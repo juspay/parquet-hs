@@ -360,7 +360,9 @@ checksum = "c469d952047f47f91b68d1cba3f10d63c11d73e4636f24f08daf0278abf01c4d"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
+ "js-sys",
  "num-traits",
+ "wasm-bindgen",
  "windows-link",
 ]
 
@@ -525,6 +527,7 @@ checksum = "cea70ddb795996207ad57735b50c5982d8844f38ba9ee5f1aedcfb708a2aa11e"
 dependencies = [
  "equivalent",
  "hashbrown",
+ "serde",
 ]
 
 [[package]]
@@ -803,11 +806,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "parquet-rs"
+name = "parquet_rs"
 version = "0.1.0"
 dependencies = [
  "arrow",
  "arrow-schema",
+ "chrono",
+ "indexmap",
  "parquet",
  "serde",
  "serde_derive",
