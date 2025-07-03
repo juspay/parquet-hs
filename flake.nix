@@ -9,11 +9,11 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         ghcPkgs = pkgs.haskell.packages.ghc963;
-        parquet-rs-outputs = import ./. {inherit pkgs;};
+        parquet-rs-outputs = import ./parquet-rs {inherit pkgs;};
         parquetrs = parquet-rs-outputs.parquetrs;
         parquet-rs-dev-shell = parquet-rs-outputs.parquetrs-dev;
         parquetPkgs =
-          hpkgs: hpkgs.callCabal2nix "parquet-hs" ./../parquet-hs { inherit parquetrs; };
+          hpkgs: hpkgs.callCabal2nix "parquet-hs" ./parquet-hs { inherit parquetrs; };
         ghcPkgsWithParquetRs =
           ghcPkgs.extend(hfinal: hprev:
             { parquetrs = parquetPkgs hfinal; });
