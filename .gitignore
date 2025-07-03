@@ -2,3 +2,9 @@
 /*/dist-newstyle/
 /*/*/dist-newstyle/
 *.parquet
+*.json
+/dist-newstyle/
+/parquet/result
+/parquet-rs/result
+/parquet-hs/result
+/parquet-hs/parquet-ffi-test/
