@@ -9,7 +9,7 @@ let
 in
 {
   # Rust package
-  parquet-rs = pkgs.rustPlatform.buildRustPackage {
+  parquetrs = pkgs.rustPlatform.buildRustPackage {
     inherit (cargoToml.package) name version;
     src = ./.;
     cargoLock.lockFile = ./Cargo.lock;
@@ -20,7 +20,7 @@ in
   };
 
   # Rust dev environment
-  parquet-rs-dev = pkgs.mkShell {
+  parquetrs-dev = pkgs.mkShell {
     shellHook = ''
       # For rust-analyzer 'hover' tooltips to work.
       export RUST_SRC_PATH=${pkgs.rustPlatform.rustLibSrc}

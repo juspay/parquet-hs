@@ -1,0 +1,4 @@
+packages:
+         ./parquet
+write-ghc-environment-files: never
+optimization: 2

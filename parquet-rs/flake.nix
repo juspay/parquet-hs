@@ -10,22 +10,23 @@
         pkgs = nixpkgs.legacyPackages.${system};
         ghcPkgs = pkgs.haskell.packages.ghc963;
         parquet-rs-outputs = import ./. {inherit pkgs;};
-        parquet-rs = parquet-rs-outputs.parquet-rs;
-        parquet-rs-dev-shell = parquet-rs-outputs.parquet-rs_dev;
+        parquetrs = parquet-rs-outputs.parquetrs;
+        parquet-rs-dev-shell = parquet-rs-outputs.parquetrs-dev;
         parquetPkgs =
-          hpkgs: hpkgs.callCabal2nix "parquet" ./../parquet { inherit parquet-rs; };
+          hpkgs: hpkgs.callCabal2nix "parquet-hs" ./../parquet-hs { inherit parquetrs; };
         ghcPkgsWithParquetRs =
           ghcPkgs.extend(hfinal: hprev:
-            { parquet = parquetPkgs hfinal; });
+            { parquetrs = parquetPkgs hfinal; });
         shellDeps =
-          with ghcPkgs; [ cabal-install ghcid haskell-language-server ];
+          with ghcPkgs; [ cabal-install ghcid haskell-language-server parquetrs ];
       in
         {
-          packages.default = ghcPkgsWithParquetRs.parquet;
+          packages.default = ghcPkgsWithParquetRs.parquetrs;
           devShells.default = ghcPkgsWithParquetRs.shellFor {
-            packages = p: [ p.parquet ];
+            packages = p: [ p.parquetrs ];
             withHoogle = true;
             buildInputs = shellDeps;
           };
+          # devShells.default = parquet-rs-dev-shell;
         });
 }
