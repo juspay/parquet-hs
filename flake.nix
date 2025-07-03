@@ -19,14 +19,29 @@
             { parquetrs = parquetPkgs hfinal; });
         shellDeps =
           with ghcPkgs; [ cabal-install ghcid haskell-language-server parquetrs ];
+        haskellShell =
+          ghcPkgsWithParquetRs.shellFor {
+            packages =
+              p:
+              [
+                p.parquetrs
+              ];
+            withHoogle = true;
+            genericBuilderArgsModifier = args: args // { doHaddock = true; };
+            buildInputs = shellDeps;
+          };
       in
         {
           packages.default = ghcPkgsWithParquetRs.parquetrs;
-          devShells.default = ghcPkgsWithParquetRs.shellFor {
-            packages = p: [ p.parquetrs ];
-            withHoogle = true;
-            buildInputs = shellDeps;
+          devShells.default = pkgs.mkShell {
+            inputsFrom = [haskellShell parquet-rs-dev-shell];
           };
+          # devShells.default = ghcPkgsWithParquetRs.shellFor {
+          #   packages = p: [ p.parquetrs ];
+          #   withHoogle = true;
+          #   buildInputs = [shellDeps parquet-rs-dev-shell];
+          # };
           # devShells.default = parquet-rs-dev-shell;
+
         });
 }
