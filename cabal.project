@@ -1,4 +1,4 @@
 packages:
-         ./parquet
+         ./parquet-hs
 write-ghc-environment-files: never
 optimization: 2
