@@ -19,6 +19,9 @@
             { parquetrs = parquetPkgs hfinal; });
         shellDeps =
           with ghcPkgs; [ cabal-install ghcid haskell-language-server parquetrs ];
+        shellHook = ''
+          export DYLD_LIBRARY_PATH=${parquetrs}/lib:$DYLD_LIBRARY_PATH
+        '';
         haskellShell =
           ghcPkgsWithParquetRs.shellFor {
             packages =
@@ -29,19 +32,23 @@
             withHoogle = true;
             genericBuilderArgsModifier = args: args // { doHaddock = true; };
             buildInputs = shellDeps;
+            postInstall = ''
+            ${if pkgs.stdenv.isDarwin then "fixDarwinDylibNames" else ""}
+            '';
           };
       in
         {
           packages.default = ghcPkgsWithParquetRs.parquetrs;
           devShells.default = pkgs.mkShell {
-            inputsFrom = [haskellShell parquet-rs-dev-shell];
+            inputsFrom = [haskellShell parquet-rs-dev-shell ] ++ (if pkgs.stdenv.isDarwin then [pkgs.fixDarwinDylibNames] else []) ;
+            inherit shellHook;
           };
+
           # devShells.default = ghcPkgsWithParquetRs.shellFor {
           #   packages = p: [ p.parquetrs ];
           #   withHoogle = true;
           #   buildInputs = [shellDeps parquet-rs-dev-shell];
           # };
           # devShells.default = parquet-rs-dev-shell;
-
         });
 }
