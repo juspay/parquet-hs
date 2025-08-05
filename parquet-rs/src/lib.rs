@@ -22,8 +22,8 @@ use parquet::file::properties::WriterPropertiesBuilder;
 use arrow::record_batch::RecordBatch;
 use serde_derive::Deserialize;
 use serde_json::Number;
-use arrow::array::{Int64Array, UInt64Array, Date32Array, Float64Array, StringArray, BooleanArray, ArrayRef, Array, TimestampMicrosecondArray,};
-use arrow::datatypes::{Int64Type, UInt64Type, Float64Type, Date32Type, TimestampSecondType, ArrowTimestampType, TimestampMicrosecondType};
+use arrow::array::{PrimitiveBuilder, ArrayBuilder, GenericListBuilder, Float64Builder, UInt64Builder, BooleanBuilder, StringBuilder, ListBuilder, ArrayData, Int64Array, UInt64Array, Date32Array, Float64Array, StringArray, BooleanArray, ArrayRef, Array, TimestampMicrosecondArray, ListArray, GenericListArray};
+use arrow::datatypes::{ArrowPrimitiveType, Int64Type, UInt64Type, Float64Type, Date32Type, TimestampSecondType, ArrowTimestampType, TimestampMicrosecondType};
 use arrow::array::PrimitiveArray;
 use indexmap::IndexMap;
 use chrono::{NaiveDate, NaiveDateTime};
@@ -36,6 +36,11 @@ pub struct ParquetSession {
     writer: ArrowWriter<File>,
     schema: Schema
 }
+
+// enum SomeType {
+//    String(GenericByteBuilder<GenericStringType<i32>>),
+//    Float(PrimitiveBuilder<Float64Type>)
+// }
 
 impl ParquetSession {
 
@@ -256,7 +261,7 @@ impl ParquetSession {
             DataType::Utf8 => {
                 let col_vec: Vec<Option<String>>  = column.into_iter().map(|v| {
                     let mut entry = v.to_string();
-                    entry.trim_ascii();
+                    entry.trim_ascii(); // TODO: Check if this is working
                     entry.make_ascii_uppercase();
                     if entry == "NULL"{
                         None
@@ -291,6 +296,118 @@ impl ParquetSession {
                 Arc::new(BooleanArray::from(col)) as ArrayRef
             }
 
+            DataType::List(field) => {
+                let datatype = field.data_type();
+                match datatype {
+                    DataType::Utf8 => {
+                        let mut builder = ListBuilder::new(StringBuilder::new());
+                        for v in column {
+                            if v.is_array() {
+                                for inner_v in v.as_array().unwrap() {
+                                    match inner_v.as_str() {
+                                        Some(s) => {
+                                            builder.values().append_value(s);
+                                        }
+                                        None => {
+                                            builder.values().append_null();
+                                        }
+                                    }
+                                }
+                            }
+                            else {
+                                builder.values().append_null();
+                            }
+                            builder.append(true);
+                        };
+                        Arc::new(ListArray::from(builder.finish())) as ArrayRef
+                    }
+
+                    DataType::Int64 => {
+                        let mut builder = PrimitiveBuilder::new().with_data_type(DataType::Int64);
+                        to_list_array::<Int64Type>(builder, column, Value::as_i64)
+                    }
+
+                    DataType::UInt64 => {
+                        let mut builder = PrimitiveBuilder::new().with_data_type(DataType::UInt64);
+                        to_list_array::<UInt64Type>(builder, column, Value::as_u64)
+                    }
+
+                    DataType::Float64 => {
+                        let mut builder = PrimitiveBuilder::new().with_data_type(DataType::Float64);
+                        to_list_array::<Float64Type>(builder, column, Value::as_f64)
+                    }
+
+                    DataType::Boolean => {
+                        let mut builder = ListBuilder::new(BooleanBuilder::new());
+                        for v in column {
+                            if v.is_array() {
+                                for inner_v in v.as_array().unwrap() {
+                                    match inner_v.as_bool() {
+                                        Some(s) => {
+                                            builder.values().append_value(s);
+                                        }
+                                        None => {
+                                            builder.values().append_null();
+                                        }
+                                    }
+                                }
+                            }
+                            else {
+                                builder.values().append_null();
+                            }
+                            builder.append(true);
+                        };
+                        Arc::new(ListArray::from(builder.finish())) as ArrayRef
+                    }
+                    _ => todo!()
+
+                    // DataType::Float64 => {
+                    //     let mut builder = ListBuilder::new(Float64Builder::new());
+                    //     for v in column {
+                    //         if v.is_array() {
+                    //             for inner_v in v.as_array().unwrap() {
+                    //                 match inner_v.as_f64() {
+                    //                     Some(s) => {
+                    //                         builder.values().append_value(s);
+                    //                     }
+                    //                     None => {
+                    //                         builder.values().append_null();
+                    //                     }
+                    //                 }
+                    //             }
+                    //         }
+                    //         else {
+                    //             builder.values().append_null();
+                    //         }
+                    //         builder.append(true);
+                    //     };
+                    //     Arc::new(ListArray::from(builder.finish())) as ArrayRef
+                    // }
+                    // DataType::UInt64 => {
+                    //     let mut builder = ListBuilder::new(UInt64Builder::new());
+                    //     for v in column {
+                    //         if v.is_array() {
+                    //             for inner_v in v.as_array().unwrap() {
+                    //                 match inner_v.as_u64() {
+                    //                     Some(s) => {
+                    //                         builder.values().append_value(s);
+                    //                     }
+                    //                     None => {
+                    //                         builder.values().append_null();
+                    //                     }
+                    //                 }
+                    //             }
+                    //         }
+                    //         else {
+                    //             builder.values().append_null();
+                    //         }
+                    //         builder.append(true);
+                    //     };
+                    //     Arc::new(ListArray::from(builder.finish())) as ArrayRef
+                    // }
+                }
+            }
+
             _ =>  {
                 let col: Vec<Option<String>> = column.into_iter().map(|_| {
                    None
@@ -300,8 +417,73 @@ impl ParquetSession {
             }
         }
     }
-
 }
+
+fn to_list_array<T : ArrowPrimitiveType>(mut builder: PrimitiveBuilder<T>, column : Vec<Value>, f : fn(&Value) -> Option<T::Native> ) -> Arc<dyn Array>{
+    for v in column {
+        if v.is_array() {
+            for inner_v in v.as_array().unwrap() {
+                match f(inner_v) {
+                    Some(s) => {
+                        builder.append_value(s);
+                    }
+                    None => {
+                        builder.append_null();
+                    }
+                }
+            }
+        }
+        else {
+            builder.append_null();
+        }
+    };
+    Arc::new(builder.finish()) as ArrayRef
+}
+// //
+// fn to_list_array<T : ArrayBuilder >(mut builder: ListBuilder<T>){
+//     for v in column {
+//         if v.is_array() {
+//             for inner_v in v.as_array().unwrap() {
+//                 match inner_v.as_bool() {
+//                     Some(s) => {
+//                         builder.values().append_value(s);
+//                     }
+//                     None => {
+//                         builder.values().append_null();
+//                     }
+//                 }
+//             }
+//         }
+//         else {
+//             builder.values().append_null();
+//         }
+//         builder.append(true);
+//     };
+//     Arc::new(ListArray::from_iter(builder.finish())) as ArrayRef;
+// }
+
+// fn to_list_array(builder_box: ListBuilder<Box<dyn ArrayBuilder>>) -> Arc<dyn Array>{
+//     let mut builder = *builder_box;
+//     for v in column {
+//         if v.is_array() {
+//             for inner_v in v.as_array().unwrap() {
+//                 match inner_v.as_bool() {
+//                     Some(s) => {
+//                         builder.values().append_value(s);
+//                     }
+//                     None => {
+//                         builder.values().append_null();
+//                     }
+//                 }
+//             }
+//         }
+//         else {
+//             builder.values().append_null();
+//         }
+//         builder.append(true);
+//     };
+//     Arc::new(ListArray::from(builder.finish())) as ArrayRef
+// }
 
 unsafe fn ptr_to_string(ptr: *const u8, len: usize) -> String {
     std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_owned()
