@@ -46,13 +46,13 @@ intToCInt n = fromInteger $ fromIntegral n
 writeBatch :: (Foldable t, AE.ToJSON a) => Ptr ParquetSession -> t (t a) -> IO ()
 writeBatch ps rows = do
   let
-    rows_lbs = AE.encode $ map toList (toAscList rows)
+    rows_lbs = AE.encode $ map toList (toList rows)
   rows_w8 <- withCStringAsWord8 $ LBSU.toString rows_lbs
   writeBatchInternal ps rows_w8 (intToCInt $ LBS.length rows_lbs)
 
 write :: (Foldable t, AE.ToJSON a, Show a, Show (t a)) => Ptr ParquetSession -> t a -> IO ()
 write ps row = do
   let
-    row_lbs = AE.encode $ map (\e -> [e]) (toAscList row)
+    row_lbs = AE.encode $ map (\e -> [e]) (toList row)
   row_w8 <- withCStringAsWord8 $ LBSU.toString row_lbs
   writeBatchInternal ps row_w8 (intToCInt $ LBS.length row_lbs)
