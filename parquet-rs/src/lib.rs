@@ -1,14 +1,6 @@
-// use serde::{Deserialize, Serialize};
-use std::{fs, path::Path, sync::Arc};
-use parquet::{column::writer::ColumnWriter, data_type::ByteArray, file::{
-        properties::WriterProperties,
-        writer::{SerializedFileWriter},
-    }, schema::parser::parse_message_type};
-use parquet::format::FileMetaData;
+use std::{fs, sync::Arc};
+use parquet::file::properties::WriterProperties;
 use std::fs::File;
-use parquet::errors::ParquetError;
-use std::ffi::CString;
-use std::os::raw::c_char;
 use parquet::arrow::ArrowWriter;
 use arrow_schema::{DataType, TimeUnit};
 use arrow_schema::Field;
@@ -18,17 +10,18 @@ use serde_json::Value;
 use parquet::basic::Compression;
 use std::str::FromStr;
 use parquet::file::properties::BloomFilterPosition;
-use parquet::file::properties::WriterPropertiesBuilder;
 use arrow::record_batch::RecordBatch;
-use serde_derive::Deserialize;
-use serde_json::Number;
-use arrow::array::{Int64Array, UInt64Array, Date32Array, Float64Array, StringArray, BooleanArray, ArrayRef, Array, TimestampMicrosecondArray,};
-use arrow::datatypes::{Int64Type, UInt64Type, Float64Type, Date32Type, TimestampSecondType, ArrowTimestampType, TimestampMicrosecondType};
+use arrow::array::{
+    PrimitiveBuilder, BooleanBuilder, StringBuilder,
+    ListBuilder, Int64Array, UInt64Array,
+    Float64Array, StringArray, BooleanArray,
+    ArrayRef, Array, TimestampMicrosecondArray, ListArray};
+use arrow::datatypes::{
+    ArrowPrimitiveType,Int64Type, UInt64Type,
+    Float64Type, ArrowTimestampType, TimestampMicrosecondType};
 use arrow::array::PrimitiveArray;
 use indexmap::IndexMap;
-use chrono::{NaiveDate, NaiveDateTime};
-
-
+use chrono::NaiveDateTime;
 
 type OrderedJsonMap = IndexMap<String, Value>;
 
@@ -173,21 +166,7 @@ impl ParquetSession {
         //
         let schema_json: OrderedJsonMap = serde_json::from_str(schema_str.as_str()).unwrap();
 
-        // let schema_json: Value = serde_json::from_str(schema_str.as_str()).unwrap();
-
-        println!("{:?}", schema_json);
-
         let mut result: Vec<(String, String, bool)> = Vec::new();
-
-        // if let Value::Object(map) = schema_json {
-        //     for (key, inner_val) in map {
-        //         if let Value::Object(inner_map) = inner_val {
-        //             let datatype = inner_map.get("datatype").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        //             let nullable = inner_map.get("nullable").and_then(|v| v.as_bool()).unwrap_or(true);
-        //             result.push((key, datatype, nullable));
-        //         }
-        //     }
-        // }
 
         for (key, inner_val) in schema_json {
             if let Value::Object(inner_map) = inner_val {
@@ -219,9 +198,6 @@ impl ParquetSession {
             .map(|i| {
                 Self::types_to_arrow_array(columnar[i].clone(), types[i].clone())
             }).collect();
-
-        // println!("{:?}", columns);
-        // println!("{:?}", types);
 
         RecordBatch::try_new(
             Arc::new(schema),
@@ -255,14 +231,13 @@ impl ParquetSession {
 
             DataType::Utf8 => {
                 let col_vec: Vec<Option<String>>  = column.into_iter().map(|v| {
-                    let mut entry = v.to_string();
-                    entry.trim_ascii();
-                    entry.make_ascii_uppercase();
-                    if entry == "NULL"{
+                    let mut entry = v.as_str().unwrap().to_string();
+                    entry = entry.trim_ascii().to_string();
+                    if entry.to_ascii_uppercase() == "NULL"{
                         None
                     }
                     else {
-                        Some(entry)
+                        Some(entry.to_string())
                     }
                 }).collect();
                 Arc::new(StringArray::from(col_vec)) as ArrayRef
@@ -276,6 +251,7 @@ impl ParquetSession {
                     {
                         Ok(ndt) => TimestampMicrosecondType::make_value(ndt),
                         Err(e) => {
+                            println!("{:?}", e);
                             None
                         }
                     }
@@ -291,6 +267,73 @@ impl ParquetSession {
                 Arc::new(BooleanArray::from(col)) as ArrayRef
             }
 
+            DataType::List(field) => {
+                let datatype = field.data_type();
+                match datatype {
+                    DataType::Utf8 => {
+                        let mut builder = ListBuilder::new(StringBuilder::new());
+                        for v in column {
+                            if v.is_array() {
+                                for inner_v in v.as_array().unwrap() {
+                                    match inner_v.as_str() {
+                                        Some(s) => {
+                                            builder.values().append_value(s);
+                                        }
+                                        None => {
+                                            builder.values().append_null();
+                                        }
+                                    }
+                                }
+                            }
+                            else {
+                                builder.values().append_null();
+                            }
+                            builder.append(true);
+                        };
+                        Arc::new(ListArray::from(builder.finish())) as ArrayRef
+                    }
+
+                    DataType::Int64 => {
+                        let builder = PrimitiveBuilder::new().with_data_type(DataType::Int64);
+                        to_list_array::<Int64Type>(builder, column, Value::as_i64)
+                    }
+
+                    DataType::UInt64 => {
+                        let builder = PrimitiveBuilder::new().with_data_type(DataType::UInt64);
+                        to_list_array::<UInt64Type>(builder, column, Value::as_u64)
+                    }
+
+                    DataType::Float64 => {
+                        let builder = PrimitiveBuilder::new().with_data_type(DataType::Float64);
+                        to_list_array::<Float64Type>(builder, column, Value::as_f64)
+                    }
+
+                    DataType::Boolean => {
+                        let mut builder = ListBuilder::new(BooleanBuilder::new());
+                        for v in column {
+                            if v.is_array() {
+                                for inner_v in v.as_array().unwrap() {
+                                    match inner_v.as_bool() {
+                                        Some(s) => {
+                                            builder.values().append_value(s);
+                                        }
+                                        None => {
+                                            builder.values().append_null();
+                                        }
+                                    }
+                                }
+                            }
+                            else {
+                                builder.values().append_null();
+                            }
+                            builder.append(true);
+                        };
+                        Arc::new(ListArray::from(builder.finish())) as ArrayRef
+                    }
+                    _ => todo!()
+                }
+            }
+
             _ =>  {
                 let col: Vec<Option<String>> = column.into_iter().map(|_| {
                    None
@@ -300,7 +343,29 @@ impl ParquetSession {
             }
         }
     }
+}
 
+fn to_list_array<T : ArrowPrimitiveType>(builder: PrimitiveBuilder<T>, column : Vec<Value>, f : fn(&Value) -> Option<T::Native> ) -> Arc<dyn Array>{
+    let mut list_builder = ListBuilder::new(builder);
+    for v in column {
+        if v.is_array() {
+            for inner_v in v.as_array().unwrap() {
+                match f(inner_v) {
+                    Some(s) => {
+                        list_builder.values().append_value(s);
+                    }
+                    None => {
+                        list_builder.values().append_null();
+                    }
+                }
+            }
+        }
+        else {
+            list_builder.values().append_null();
+        }
+        list_builder.append(true);
+    };
+    Arc::new(list_builder.finish()) as ArrayRef
 }
 
 unsafe fn ptr_to_string(ptr: *const u8, len: usize) -> String {
