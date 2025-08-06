@@ -1,14 +1,6 @@
-// use serde::{Deserialize, Serialize};
-use std::{fs, path::Path, sync::Arc};
-use parquet::{column::writer::ColumnWriter, data_type::ByteArray, file::{
-        properties::WriterProperties,
-        writer::{SerializedFileWriter},
-    }, schema::parser::parse_message_type};
-use parquet::format::FileMetaData;
+use std::{fs, sync::Arc};
+use parquet::file::properties::WriterProperties;
 use std::fs::File;
-use parquet::errors::ParquetError;
-use std::ffi::CString;
-use std::os::raw::c_char;
 use parquet::arrow::ArrowWriter;
 use arrow_schema::{DataType, TimeUnit};
 use arrow_schema::Field;
@@ -18,17 +10,18 @@ use serde_json::Value;
 use parquet::basic::Compression;
 use std::str::FromStr;
 use parquet::file::properties::BloomFilterPosition;
-use parquet::file::properties::WriterPropertiesBuilder;
 use arrow::record_batch::RecordBatch;
-use serde_derive::Deserialize;
-use serde_json::Number;
-use arrow::array::{PrimitiveBuilder, ArrayBuilder, GenericListBuilder, Float64Builder, UInt64Builder, BooleanBuilder, StringBuilder, ListBuilder, ArrayData, Int64Array, UInt64Array, Date32Array, Float64Array, StringArray, BooleanArray, ArrayRef, Array, TimestampMicrosecondArray, ListArray, GenericListArray};
-use arrow::datatypes::{ArrowPrimitiveType, Int64Type, UInt64Type, Float64Type, Date32Type, TimestampSecondType, ArrowTimestampType, TimestampMicrosecondType};
+use arrow::array::{
+    PrimitiveBuilder, BooleanBuilder, StringBuilder,
+    ListBuilder, Int64Array, UInt64Array,
+    Float64Array, StringArray, BooleanArray,
+    ArrayRef, Array, TimestampMicrosecondArray, ListArray};
+use arrow::datatypes::{
+    ArrowPrimitiveType,Int64Type, UInt64Type,
+    Float64Type, ArrowTimestampType, TimestampMicrosecondType};
 use arrow::array::PrimitiveArray;
 use indexmap::IndexMap;
-use chrono::{NaiveDate, NaiveDateTime};
-
-
+use chrono::NaiveDateTime;
 
 type OrderedJsonMap = IndexMap<String, Value>;
 
@@ -36,11 +29,6 @@ pub struct ParquetSession {
     writer: ArrowWriter<File>,
     schema: Schema
 }
-
-// enum SomeType {
-//    String(GenericByteBuilder<GenericStringType<i32>>),
-//    Float(PrimitiveBuilder<Float64Type>)
-// }
 
 impl ParquetSession {
 
@@ -178,21 +166,7 @@ impl ParquetSession {
         //
         let schema_json: OrderedJsonMap = serde_json::from_str(schema_str.as_str()).unwrap();
 
-        // let schema_json: Value = serde_json::from_str(schema_str.as_str()).unwrap();
-
-        println!("{:?}", schema_json);
-
         let mut result: Vec<(String, String, bool)> = Vec::new();
-
-        // if let Value::Object(map) = schema_json {
-        //     for (key, inner_val) in map {
-        //         if let Value::Object(inner_map) = inner_val {
-        //             let datatype = inner_map.get("datatype").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        //             let nullable = inner_map.get("nullable").and_then(|v| v.as_bool()).unwrap_or(true);
-        //             result.push((key, datatype, nullable));
-        //         }
-        //     }
-        // }
 
         for (key, inner_val) in schema_json {
             if let Value::Object(inner_map) = inner_val {
@@ -224,9 +198,6 @@ impl ParquetSession {
             .map(|i| {
                 Self::types_to_arrow_array(columnar[i].clone(), types[i].clone())
             }).collect();
-
-        // println!("{:?}", columns);
-        // println!("{:?}", types);
 
         RecordBatch::try_new(
             Arc::new(schema),
@@ -260,14 +231,13 @@ impl ParquetSession {
 
             DataType::Utf8 => {
                 let col_vec: Vec<Option<String>>  = column.into_iter().map(|v| {
-                    let mut entry = v.to_string();
-                    entry.trim_ascii(); // TODO: Check if this is working
-                    entry.make_ascii_uppercase();
-                    if entry == "NULL"{
+                    let mut entry = v.as_str().unwrap().to_string();
+                    entry = entry.trim_ascii().to_string();
+                    if entry.to_ascii_uppercase() == "NULL"{
                         None
                     }
                     else {
-                        Some(entry)
+                        Some(entry.to_string())
                     }
                 }).collect();
                 Arc::new(StringArray::from(col_vec)) as ArrayRef
@@ -281,6 +251,7 @@ impl ParquetSession {
                     {
                         Ok(ndt) => TimestampMicrosecondType::make_value(ndt),
                         Err(e) => {
+                            println!("{:?}", e);
                             None
                         }
                     }
@@ -323,17 +294,17 @@ impl ParquetSession {
                     }
 
                     DataType::Int64 => {
-                        let mut builder = PrimitiveBuilder::new().with_data_type(DataType::Int64);
+                        let builder = PrimitiveBuilder::new().with_data_type(DataType::Int64);
                         to_list_array::<Int64Type>(builder, column, Value::as_i64)
                     }
 
                     DataType::UInt64 => {
-                        let mut builder = PrimitiveBuilder::new().with_data_type(DataType::UInt64);
+                        let builder = PrimitiveBuilder::new().with_data_type(DataType::UInt64);
                         to_list_array::<UInt64Type>(builder, column, Value::as_u64)
                     }
 
                     DataType::Float64 => {
-                        let mut builder = PrimitiveBuilder::new().with_data_type(DataType::Float64);
+                        let builder = PrimitiveBuilder::new().with_data_type(DataType::Float64);
                         to_list_array::<Float64Type>(builder, column, Value::as_f64)
                     }
 
@@ -360,51 +331,6 @@ impl ParquetSession {
                         Arc::new(ListArray::from(builder.finish())) as ArrayRef
                     }
                     _ => todo!()
-
-                    // DataType::Float64 => {
-                    //     let mut builder = ListBuilder::new(Float64Builder::new());
-                    //     for v in column {
-                    //         if v.is_array() {
-                    //             for inner_v in v.as_array().unwrap() {
-                    //                 match inner_v.as_f64() {
-                    //                     Some(s) => {
-                    //                         builder.values().append_value(s);
-                    //                     }
-                    //                     None => {
-                    //                         builder.values().append_null();
-                    //                     }
-                    //                 }
-                    //             }
-                    //         }
-                    //         else {
-                    //             builder.values().append_null();
-                    //         }
-                    //         builder.append(true);
-                    //     };
-                    //     Arc::new(ListArray::from(builder.finish())) as ArrayRef
-                    // }
-                    // DataType::UInt64 => {
-                    //     let mut builder = ListBuilder::new(UInt64Builder::new());
-                    //     for v in column {
-                    //         if v.is_array() {
-                    //             for inner_v in v.as_array().unwrap() {
-                    //                 match inner_v.as_u64() {
-                    //                     Some(s) => {
-                    //                         builder.values().append_value(s);
-                    //                     }
-                    //                     None => {
-                    //                         builder.values().append_null();
-                    //                     }
-                    //                 }
-                    //             }
-                    //         }
-                    //         else {
-                    //             builder.values().append_null();
-                    //         }
-                    //         builder.append(true);
-                    //     };
-                    //     Arc::new(ListArray::from(builder.finish())) as ArrayRef
-                    // }
                 }
             }
 
@@ -419,71 +345,28 @@ impl ParquetSession {
     }
 }
 
-fn to_list_array<T : ArrowPrimitiveType>(mut builder: PrimitiveBuilder<T>, column : Vec<Value>, f : fn(&Value) -> Option<T::Native> ) -> Arc<dyn Array>{
+fn to_list_array<T : ArrowPrimitiveType>(builder: PrimitiveBuilder<T>, column : Vec<Value>, f : fn(&Value) -> Option<T::Native> ) -> Arc<dyn Array>{
+    let mut list_builder = ListBuilder::new(builder);
     for v in column {
         if v.is_array() {
             for inner_v in v.as_array().unwrap() {
                 match f(inner_v) {
                     Some(s) => {
-                        builder.append_value(s);
+                        list_builder.values().append_value(s);
                     }
                     None => {
-                        builder.append_null();
+                        list_builder.values().append_null();
                     }
                 }
             }
         }
         else {
-            builder.append_null();
+            list_builder.values().append_null();
         }
+        list_builder.append(true);
     };
-    Arc::new(builder.finish()) as ArrayRef
+    Arc::new(list_builder.finish()) as ArrayRef
 }
-// //
-// fn to_list_array<T : ArrayBuilder >(mut builder: ListBuilder<T>){
-//     for v in column {
-//         if v.is_array() {
-//             for inner_v in v.as_array().unwrap() {
-//                 match inner_v.as_bool() {
-//                     Some(s) => {
-//                         builder.values().append_value(s);
-//                     }
-//                     None => {
-//                         builder.values().append_null();
-//                     }
-//                 }
-//             }
-//         }
-//         else {
-//             builder.values().append_null();
-//         }
-//         builder.append(true);
-//     };
-//     Arc::new(ListArray::from_iter(builder.finish())) as ArrayRef;
-// }
-
-// fn to_list_array(builder_box: ListBuilder<Box<dyn ArrayBuilder>>) -> Arc<dyn Array>{
-//     let mut builder = *builder_box;
-//     for v in column {
-//         if v.is_array() {
-//             for inner_v in v.as_array().unwrap() {
-//                 match inner_v.as_bool() {
-//                     Some(s) => {
-//                         builder.values().append_value(s);
-//                     }
-//                     None => {
-//                         builder.values().append_null();
-//                     }
-//                 }
-//             }
-//         }
-//         else {
-//             builder.values().append_null();
-//         }
-//         builder.append(true);
-//     };
-//     Arc::new(ListArray::from(builder.finish())) as ArrayRef
-// }
 
 unsafe fn ptr_to_string(ptr: *const u8, len: usize) -> String {
     std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_owned()
