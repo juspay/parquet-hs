@@ -6,7 +6,7 @@ use arrow_schema::{DataType, TimeUnit};
 use arrow_schema::Field;
 use arrow::datatypes::Schema;
 use parquet::schema::types::ColumnPath;
-use serde_json::Value;
+use serde_json::{Value, json};
 use parquet::basic::Compression;
 use std::str::FromStr;
 use parquet::file::properties::BloomFilterPosition;
@@ -51,7 +51,7 @@ impl ParquetSession {
             let schema_arc = Arc::new(schema.clone());
             let arrow_writer = ArrowWriter::try_new(file, schema_arc, Some(writer_props)).unwrap();
 
-            println!("{:?}", schema);
+            println!("initializing new ParquetSession");
             Box::into_raw(Box::new(ParquetSession {
                 writer: arrow_writer,
                 schema: schema
@@ -82,6 +82,7 @@ impl ParquetSession {
             let ps = &mut *sess_ptr;
             println!("flushing");
             ps.writer.flush().unwrap();
+            println!("flushed!");
         }
     }
 
@@ -89,8 +90,8 @@ impl ParquetSession {
     pub extern "C" fn close_writer(
         sess_ptr: *mut ParquetSession){
         unsafe {
-            let ps = Box::from_raw(sess_ptr);
             println!("closing writer");
+            let ps = Box::from_raw(sess_ptr);
             ps.writer.close().unwrap();
         }
     }
@@ -102,7 +103,9 @@ impl ParquetSession {
 
         let empty = vec![];
 
-        let props_json : Value = serde_json::from_str(props.as_str()).unwrap();
+        let props_json : Value = serde_json::from_str(props.as_str()).unwrap_or_else(|e| {
+            panic!("Error in parsing props file: {} ",e);
+        });
         let bloom_filter_position_str = props_json.get("set_bloom_filter_position").and_then(|v| v.as_str()).unwrap_or_else(|| {
             println!("set_bloom_filter_position: Key not found, using default as AfterRowGroup");
             "AfterRowGroup"
@@ -198,7 +201,6 @@ impl ParquetSession {
             .map(|i| {
                 Self::types_to_arrow_array(columnar[i].clone(), types[i].clone())
             }).collect();
-
         RecordBatch::try_new(
             Arc::new(schema),
             columns
@@ -231,14 +233,21 @@ impl ParquetSession {
 
             DataType::Utf8 => {
                 let col_vec: Vec<Option<String>>  = column.into_iter().map(|v| {
-                    let mut entry = v.as_str().unwrap().to_string();
-                    entry = entry.trim_ascii().to_string();
-                    if entry.to_ascii_uppercase() == "NULL"{
-                        None
+                    match v {
+                        Value::Null => {None}
+                        v => {
+                            let
+                              mut entry = v.as_str().unwrap().to_string();
+                              entry = entry.trim_ascii().to_string();
+                            if entry.to_ascii_uppercase() == "NULL"{
+                              None
+                            }
+                            else {
+                              Some(entry.to_string())
+                            }
+                        }
                     }
-                    else {
-                        Some(entry.to_string())
-                    }
+
                 }).collect();
                 Arc::new(StringArray::from(col_vec)) as ArrayRef
             }
@@ -269,12 +278,13 @@ impl ParquetSession {
 
             DataType::List(field) => {
                 let datatype = field.data_type();
+                let empty = vec![];
                 match datatype {
                     DataType::Utf8 => {
                         let mut builder = ListBuilder::new(StringBuilder::new());
                         for v in column {
                             if v.is_array() {
-                                for inner_v in v.as_array().unwrap() {
+                                for inner_v in v.as_array().unwrap_or(&empty) {
                                     match inner_v.as_str() {
                                         Some(s) => {
                                             builder.values().append_value(s);
@@ -286,6 +296,7 @@ impl ParquetSession {
                                 }
                             }
                             else {
+                                println!("Couldn't parse an array of type List(Utf8), {:?}", v);
                                 builder.values().append_null();
                             }
                             builder.append(true);
@@ -318,6 +329,7 @@ impl ParquetSession {
                                             builder.values().append_value(s);
                                         }
                                         None => {
+                                            println!("Couldn't parse the array value as bool entry, {:?}", inner_v);
                                             builder.values().append_null();
                                         }
                                     }
@@ -355,12 +367,14 @@ fn to_list_array<T : ArrowPrimitiveType>(builder: PrimitiveBuilder<T>, column : 
                         list_builder.values().append_value(s);
                     }
                     None => {
+                        println!("Couldn't parse the array value, {:?}", inner_v);
                         list_builder.values().append_null();
                     }
                 }
             }
         }
         else {
+            println!("Couldn't parse the array, {:?}", v);
             list_builder.values().append_null();
         }
         list_builder.append(true);
