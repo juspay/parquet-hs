@@ -103,9 +103,8 @@ impl ParquetSession {
 
         let empty = vec![];
 
-        let props_json : Value = serde_json::from_str(props.as_str()).unwrap_or_else(|_| {
-            println!("Error in parsing props file");
-            json!({})
+        let props_json : Value = serde_json::from_str(props.as_str()).unwrap_or_else(|e| {
+            panic!("Error in parsing props file: {} ",e);
         });
         let bloom_filter_position_str = props_json.get("set_bloom_filter_position").and_then(|v| v.as_str()).unwrap_or_else(|| {
             println!("set_bloom_filter_position: Key not found, using default as AfterRowGroup");
