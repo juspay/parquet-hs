@@ -31,7 +31,7 @@ foreign import ccall "write_batch"
 foreign import ccall "flush_row_group"
   flushRowGroup :: Ptr ParquetSession -> IO ()
 
-foreign import ccall "close_writer"
+foreign import ccall "close_ps_writer"
   closeWriter :: Ptr ParquetSession -> IO()
 
 withCStringAsWord8 :: String -> IO (Ptr Word8)

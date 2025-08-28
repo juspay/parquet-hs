@@ -87,12 +87,16 @@ impl ParquetSession {
     }
 
     #[no_mangle]
-    pub extern "C" fn close_writer(
+    pub extern "C" fn close_ps_writer(
         sess_ptr: *mut ParquetSession){
         unsafe {
             println!("closing writer");
             let ps = Box::from_raw(sess_ptr);
-            ps.writer.close().unwrap();
+            // ps.writer.close().unwrap();
+            match ps.writer.close() {
+                Ok(_) => eprintln!("Writer closed successfully"),
+                Err(e) => eprintln!("Writer could not be closed: error: {:?}", e),
+            }
         }
     }
 
@@ -254,16 +258,23 @@ impl ParquetSession {
 
             DataType::Timestamp(TimeUnit::Microsecond, None) => {
                 let col: PrimitiveArray<TimestampMicrosecondType> = column.into_iter().map(|v| {
-                    match NaiveDateTime::parse_from_str(v.as_str().unwrap_or("null"), "%FT%T%.fZ")
+                    if v.is_null() {
+                        None
+                    }
+                    else {
+                      match
+                        NaiveDateTime::parse_from_str(v.as_str().unwrap_or("null"), "%FT%T%.fZ")
                         .or_else(|_|
                         NaiveDateTime::parse_from_str(v.as_str().unwrap_or("null"), "%F %T%.f"))
-                    {
-                        Ok(ndt) => TimestampMicrosecondType::make_value(ndt),
-                        Err(e) => {
-                            println!("{:?}", e);
-                            None
+                        {
+                            Ok(ndt) => TimestampMicrosecondType::make_value(ndt),
+                            Err(e) => {
+                                println!("Error while parsing entry v {:?} as datetime : {:?}", v, e);
+                                None
+                            }
                         }
                     }
+
                 }).collect();
                 Arc::new(TimestampMicrosecondArray::from(col)) as ArrayRef
             }
@@ -280,29 +291,7 @@ impl ParquetSession {
                 let datatype = field.data_type();
                 let empty = vec![];
                 match datatype {
-                    DataType::Utf8 => {
-                        let mut builder = ListBuilder::new(StringBuilder::new());
-                        for v in column {
-                            if v.is_array() {
-                                for inner_v in v.as_array().unwrap_or(&empty) {
-                                    match inner_v.as_str() {
-                                        Some(s) => {
-                                            builder.values().append_value(s);
-                                        }
-                                        None => {
-                                            builder.values().append_null();
-                                        }
-                                    }
-                                }
-                            }
-                            else {
-                                println!("Couldn't parse an array of type List(Utf8), {:?}", v);
-                                builder.values().append_null();
-                            }
-                            builder.append(true);
-                        };
-                        Arc::new(ListArray::from(builder.finish())) as ArrayRef
-                    }
+
 
                     DataType::Int64 => {
                         let builder = PrimitiveBuilder::new().with_data_type(DataType::Int64);
@@ -342,7 +331,36 @@ impl ParquetSession {
                         };
                         Arc::new(ListArray::from(builder.finish())) as ArrayRef
                     }
-                    _ => todo!()
+                    _ => {
+                        let mut builder = ListBuilder::new(StringBuilder::new());
+                        for v in column {
+                            if v.is_array() {
+                                for inner_v in v.as_array().unwrap_or(&empty) {
+                                    match inner_v.as_str() {
+                                        Some(s) => {
+                                            builder.values().append_value(s);
+                                        }
+                                        None => {
+                                            builder.values().append_null();
+                                        }
+                                    }
+                                }
+                            }
+                            else if v.is_null() {
+                                builder.values().append_null();
+                            }
+                            else {
+                                println!("Couldn't parse element for column of type List(Utf8), {:?}", v);
+                                builder.values().append_null();
+                            }
+                            builder.append(true);
+                        };
+                        Arc::new(ListArray::from(builder.finish())) as ArrayRef
+                    }
+                    // dt => {
+                    //     println!("{:?}", dt);
+                    //     todo!()
+                    // }
                 }
             }
 
