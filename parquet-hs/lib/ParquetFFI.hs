@@ -13,12 +13,12 @@ module ParquetFFI where
 import Data.Word (Word8)
 import Foreign.Ptr (Ptr, castPtr)
 import Foreign.C.Types
-import Foreign.C.String (newCString)
-import Data.Int
 import Data.Foldable
+import Foreign.C.String (newCString)
+import Data.ByteString.Unsafe
+import qualified Data.ByteString as BS
 import qualified Data.Aeson as AE
 import qualified Data.ByteString.Lazy as LBS
-import qualified Data.ByteString.Lazy.UTF8 as LBSU
 
 data ParquetSession
 
@@ -40,19 +40,20 @@ withCStringAsWord8 str =
     c_str <- newCString str
     pure $ (castPtr c_str :: Ptr Word8)
 
-intToCInt :: Int64 -> CInt
-intToCInt n = fromInteger $ fromIntegral n
-
 writeBatch :: (Foldable t, AE.ToJSON a) => Ptr ParquetSession -> t (t a) -> IO ()
 writeBatch ps rows = do
   let
-    rows_lbs = AE.encode $ map toList (toList rows)
-  rows_w8 <- withCStringAsWord8 $ LBSU.toString rows_lbs
-  writeBatchInternal ps rows_w8 (intToCInt $ LBS.length rows_lbs)
+    rows_lbs = LBS.toStrict $ AE.encode $ map toList (toList rows)
+  unsafeUseAsCString
+    rows_lbs
+    (\rows_cs ->
+        writeBatchInternal ps (castPtr rows_cs) (fromIntegral $ BS.length rows_lbs))
 
 write :: (Foldable t, AE.ToJSON a, Show a, Show (t a)) => Ptr ParquetSession -> t a -> IO ()
 write ps row = do
   let
-    row_lbs = AE.encode $ map (\e -> [e]) (toList row)
-  row_w8 <- withCStringAsWord8 $ LBSU.toString row_lbs
-  writeBatchInternal ps row_w8 (intToCInt $ LBS.length row_lbs)
+    row_lbs = LBS.toStrict $ AE.encode $ map (\e -> [e]) (toList row)
+  unsafeUseAsCString
+    row_lbs
+    (\row_cs ->
+        writeBatchInternal ps (castPtr row_cs) (fromIntegral $ BS.length row_lbs))
