@@ -27,7 +27,7 @@ type OrderedJsonMap = IndexMap<String, Value>;
 
 pub struct ParquetSession {
     writer: ArrowWriter<File>,
-    schema: Schema
+    schema_arc: Arc<Schema>
 }
 
 impl ParquetSession {
@@ -54,7 +54,7 @@ impl ParquetSession {
             println!("initializing new ParquetSession");
             Box::into_raw(Box::new(ParquetSession {
                 writer: arrow_writer,
-                schema: schema
+                schema_arc: Arc::new(schema)
             }))
         }
     }
@@ -69,7 +69,7 @@ impl ParquetSession {
 
             let ps = &mut *sess_ptr;
             let batch_string = ptr_to_string(batch, batch_length);
-            let rb = Self::create_record_batch(ps.schema.clone(), batch_string);
+            let rb = Self::create_record_batch(ps , batch_string);
             ps.writer.write(&rb).unwrap();
         }
     }
@@ -79,7 +79,6 @@ impl ParquetSession {
         sess_ptr: *mut ParquetSession){
         unsafe {
             let ps = &mut *sess_ptr;
-            println!("flushing");
             ps.writer.flush().unwrap();
             println!("flushed!");
         }
@@ -191,26 +190,27 @@ impl ParquetSession {
         Field::new(col_name, col_type, nullable)
     }
 
-    fn create_record_batch(schema: Schema, batch: String) -> RecordBatch{
+    fn create_record_batch(&self , batch: String) -> RecordBatch{
         let columnar: Vec<Vec<Value>> = serde_json::from_str(batch.as_str()).unwrap_or_else(|e|{
             panic!("Couldn't parse the row {:?}", batch);
         });
 
-        let fields = schema.fields();
+        let fields = self.schema_arc.fields();
+
         let types: Vec<&DataType> = fields.into_iter().map(|f| {
             f.data_type()
         }).collect();
         let columns: Vec<Arc<dyn Array>> = (0..columnar.len())
             .map(|i| {
-                Self::types_to_arrow_array(columnar[i].clone(), types[i].clone())
+                Self::types_to_arrow_array(&columnar[i], types[i])
             }).collect();
         RecordBatch::try_new(
-            Arc::new(schema),
+            self.schema_arc.clone(),
             columns
         ).unwrap()
     }
 
-    fn types_to_arrow_array(column: Vec<Value>, col_type: DataType) -> ArrayRef {
+    fn types_to_arrow_array(column: &[Value], col_type: &DataType) -> ArrayRef {
 
         match col_type {
             DataType::Int64 => {
@@ -373,7 +373,7 @@ impl ParquetSession {
     }
 }
 
-fn to_list_array<T : ArrowPrimitiveType>(builder: PrimitiveBuilder<T>, column : Vec<Value>, f : fn(&Value) -> Option<T::Native> ) -> Arc<dyn Array>{
+fn to_list_array<T : ArrowPrimitiveType>(builder: PrimitiveBuilder<T>, column : &[Value], f : fn(&Value) -> Option<T::Native> ) -> Arc<dyn Array>{
     let mut list_builder = ListBuilder::new(builder);
     for v in column {
         if v.is_array() {
