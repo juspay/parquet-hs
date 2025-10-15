@@ -6,7 +6,7 @@ use arrow_schema::{DataType, TimeUnit};
 use arrow_schema::Field;
 use arrow::datatypes::Schema;
 use parquet::schema::types::ColumnPath;
-use serde_json::{Value, json};
+use serde_json::Value;
 use parquet::basic::Compression;
 use std::str::FromStr;
 use parquet::file::properties::BloomFilterPosition;
@@ -218,25 +218,25 @@ impl ParquetSession {
                 let col: PrimitiveArray<Int64Type> = column.into_iter().map(|v| {
                     v.as_i64()
                 }).collect();
-                Arc::new(Int64Array::from(col)) as ArrayRef
+                Arc::new(col) as ArrayRef
             }
 
             DataType::UInt64 => {
                 let col: PrimitiveArray<UInt64Type> = column.into_iter().map(|v| {
                     v.as_u64()
                 }).collect();
-                Arc::new(UInt64Array::from(col)) as ArrayRef
+                Arc::new(col) as ArrayRef
             }
 
             DataType::Float64 => {
                 let col: PrimitiveArray<Float64Type> = column.into_iter().map(|v| {
                     v.as_f64()
                 }).collect();
-                Arc::new(Float64Array::from(col)) as ArrayRef
+                Arc::new(col) as ArrayRef
             }
 
             DataType::Utf8 => {
-                let col_vec: Vec<Option<String>>  = column.into_iter().map(|v| {
+                let col_vec: StringArray  = column.into_iter().map(|v| {
                     match v {
                         Value::Null => {None}
                         v => {
@@ -253,7 +253,7 @@ impl ParquetSession {
                     }
 
                 }).collect();
-                Arc::new(StringArray::from(col_vec)) as ArrayRef
+                Arc::new(col_vec) as ArrayRef
             }
 
             DataType::Timestamp(TimeUnit::Microsecond, None) => {
@@ -280,11 +280,11 @@ impl ParquetSession {
             }
 
             DataType::Boolean => {
-                let col: Vec<Option<bool>> = column.into_iter().map(|v| {
+                let col: BooleanArray = column.into_iter().map(|v| {
                     v.as_bool()
                 }).collect();
 
-                Arc::new(BooleanArray::from(col)) as ArrayRef
+                Arc::new(col) as ArrayRef
             }
 
             DataType::List(field) => {
