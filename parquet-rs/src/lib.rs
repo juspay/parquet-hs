@@ -27,7 +27,8 @@ type OrderedJsonMap = IndexMap<String, Value>;
 
 pub struct ParquetSession {
     writer: ArrowWriter<File>,
-    schema_arc: Arc<Schema>
+    schema_arc: Arc<Schema>,
+    types: Vec<DataType>
 }
 
 impl ParquetSession {
@@ -49,12 +50,17 @@ impl ParquetSession {
             let writer_props = Self::set_writer_props(props);
             let schema = Self::schema_from_json(schema_str.clone());
             let schema_arc = Arc::new(schema.clone());
+            let types: Vec<DataType> = schema_arc.clone().fields().into_iter().map(|f| {
+                f.data_type().clone()
+            }).collect();
             let arrow_writer = ArrowWriter::try_new(file, schema_arc, Some(writer_props)).unwrap();
+
 
             println!("initializing new ParquetSession");
             Box::into_raw(Box::new(ParquetSession {
                 writer: arrow_writer,
-                schema_arc: Arc::new(schema)
+                schema_arc: Arc::new(schema),
+                types: types
             }))
         }
     }
@@ -195,14 +201,9 @@ impl ParquetSession {
             panic!("Couldn't parse the row {:?}", batch);
         });
 
-        let fields = self.schema_arc.fields();
-
-        let types: Vec<&DataType> = fields.into_iter().map(|f| {
-            f.data_type()
-        }).collect();
         let columns: Vec<Arc<dyn Array>> = (0..columnar.len())
             .map(|i| {
-                Self::types_to_arrow_array(&columnar[i], types[i])
+                Self::types_to_arrow_array(&columnar[i], &self.types[i])
             }).collect();
         RecordBatch::try_new(
             self.schema_arc.clone(),
