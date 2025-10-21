@@ -239,16 +239,19 @@ impl ParquetSession {
                 let col_vec: StringArray  = column.into_iter().map(|v| {
                     match v {
                         Value::Null => {None}
-                        v => {
+                        Value::String(s) => {
                             let
-                              mut entry = v.as_str().unwrap().to_string();
-                              entry = entry.trim_ascii().to_string();
-                            if entry.to_ascii_uppercase() == "NULL"{
+                              s = s.trim_ascii();
+                            if s.to_ascii_uppercase() == "NULL"{
                               None
                             }
                             else {
-                              Some(entry.to_string())
+                              Some(s.to_string())
                             }
+                        }
+                        _ => {
+                            let el = v.to_string();
+                            Some(el)
                         }
                     }
 
