@@ -77,7 +77,7 @@ impl ParquetSession {
 
             let ps = &mut *sess_ptr;
             let batch_string = ptr_to_string(batch, batch_length);
-            let rb = Self::create_record_batchV2(ps , batch_string);
+            let rb = Self::create_record_batch(ps , batch_string);
             ps.writer.write(&rb).unwrap();
         }
     }
@@ -198,7 +198,7 @@ impl ParquetSession {
         Field::new(col_name, col_type, nullable)
     }
 
-    fn create_record_batchV2(&self, batch: String) -> RecordBatch {
+    fn create_record_batch(&self, batch: String) -> RecordBatch {
         let mut batch_bytes = batch.into_bytes();
         let columnar: Vec<Vec<Value>> = simd_json::serde::from_slice(&mut batch_bytes)
             .unwrap_or_else(|e| panic!("Couldn't parse the row: {:?}", e));
