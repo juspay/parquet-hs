@@ -198,21 +198,6 @@ impl ParquetSession {
         Field::new(col_name, col_type, nullable)
     }
 
-    fn create_record_batch(&self , batch: String) -> RecordBatch{
-        let columnar: Vec<Vec<Value>> = serde_json::from_str(batch.as_str()).unwrap_or_else(|e|{
-            panic!("Couldn't parse the row {:?}", batch);
-        });
-
-        let columns: Vec<Arc<dyn Array>> = (0..columnar.len())
-            .map(|i| {
-                Self::types_to_arrow_array(&columnar[i], &self.types[i])
-            }).collect();
-        RecordBatch::try_new(
-            self.schema_arc.clone(),
-            columns
-        ).unwrap()
-    }
-
     fn create_record_batchV2(&self, batch: String) -> RecordBatch {
         let mut batch_bytes = batch.into_bytes();
         let columnar: Vec<Vec<Value>> = simd_json::serde::from_slice(&mut batch_bytes)
