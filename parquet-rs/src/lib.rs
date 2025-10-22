@@ -6,7 +6,7 @@ use arrow_schema::{DataType, TimeUnit};
 use arrow_schema::Field;
 use arrow::datatypes::Schema;
 use parquet::schema::types::ColumnPath;
-use serde_json::Value;
+// use serde_json::Value;
 use parquet::basic::Compression;
 use std::str::FromStr;
 use parquet::file::properties::BloomFilterPosition;
@@ -22,6 +22,8 @@ use arrow::datatypes::{
 use arrow::array::PrimitiveArray;
 use indexmap::IndexMap;
 use chrono::NaiveDateTime;
+use simd_json::prelude::*;
+use serde_json::Value;
 
 type OrderedJsonMap = IndexMap<String, Value>;
 
@@ -33,7 +35,7 @@ pub struct ParquetSession {
 
 impl ParquetSession {
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn new(
         schema_ptr: *const u8,
         schema_length: usize,
@@ -65,7 +67,7 @@ impl ParquetSession {
         }
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn write_batch(
         sess_ptr: *mut ParquetSession,
         batch: *const u8,
@@ -75,12 +77,12 @@ impl ParquetSession {
 
             let ps = &mut *sess_ptr;
             let batch_string = ptr_to_string(batch, batch_length);
-            let rb = Self::create_record_batch(ps , batch_string);
+            let rb = Self::create_record_batchV2(ps , batch_string);
             ps.writer.write(&rb).unwrap();
         }
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn flush_row_group(
         sess_ptr: *mut ParquetSession){
         unsafe {
@@ -90,7 +92,7 @@ impl ParquetSession {
         }
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn close_ps_writer(
         sess_ptr: *mut ParquetSession){
         unsafe {
@@ -205,6 +207,22 @@ impl ParquetSession {
             .map(|i| {
                 Self::types_to_arrow_array(&columnar[i], &self.types[i])
             }).collect();
+        RecordBatch::try_new(
+            self.schema_arc.clone(),
+            columns
+        ).unwrap()
+    }
+
+    fn create_record_batchV2(&self, batch: String) -> RecordBatch {
+        let mut batch_bytes = batch.into_bytes();
+        let columnar: Vec<Vec<Value>> = simd_json::serde::from_slice(&mut batch_bytes)
+            .unwrap_or_else(|e| panic!("Couldn't parse the row: {:?}", e));
+
+        let columns: Vec<Arc<dyn Array>> = (0..columnar.len())
+            .map(|i| {
+                Self::types_to_arrow_array(&columnar[i], &self.types[i])
+            }).collect();
+
         RecordBatch::try_new(
             self.schema_arc.clone(),
             columns

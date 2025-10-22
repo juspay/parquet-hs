@@ -12,6 +12,14 @@ arrow = "55.0.0"
 arrow-schema = "55.0.0"
 indexmap = { version = "2.0", features = ["serde"] }
 chrono = "0.4.41"
+simd-json = { version = "0.14.3", features = ["serde"] }
 
 [lib]
 crate-type = ["cdylib"]
+
+[profile.release]
+debug = false
+opt-level = 3          # maximum optimization for speed
+lto = true             # enable link-time optimization
+codegen-units = 1      # better optimization at the cost of slower compile
+overflow-checks = false # skip integer overflow checks
