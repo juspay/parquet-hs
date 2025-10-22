@@ -6,7 +6,7 @@ use arrow_schema::{DataType, TimeUnit};
 use arrow_schema::Field;
 use arrow::datatypes::Schema;
 use parquet::schema::types::ColumnPath;
-use serde_json::Value;
+// use serde_json::Value;
 use parquet::basic::Compression;
 use std::str::FromStr;
 use parquet::file::properties::BloomFilterPosition;
@@ -22,6 +22,8 @@ use arrow::datatypes::{
 use arrow::array::PrimitiveArray;
 use indexmap::IndexMap;
 use chrono::NaiveDateTime;
+use simd_json::prelude::*;
+use serde_json::Value;
 
 type OrderedJsonMap = IndexMap<String, Value>;
 
@@ -33,7 +35,7 @@ pub struct ParquetSession {
 
 impl ParquetSession {
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn new(
         schema_ptr: *const u8,
         schema_length: usize,
@@ -65,7 +67,7 @@ impl ParquetSession {
         }
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn write_batch(
         sess_ptr: *mut ParquetSession,
         batch: *const u8,
@@ -80,7 +82,7 @@ impl ParquetSession {
         }
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn flush_row_group(
         sess_ptr: *mut ParquetSession){
         unsafe {
@@ -90,7 +92,7 @@ impl ParquetSession {
         }
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn close_ps_writer(
         sess_ptr: *mut ParquetSession){
         unsafe {
@@ -196,15 +198,16 @@ impl ParquetSession {
         Field::new(col_name, col_type, nullable)
     }
 
-    fn create_record_batch(&self , batch: String) -> RecordBatch{
-        let columnar: Vec<Vec<Value>> = serde_json::from_str(batch.as_str()).unwrap_or_else(|e|{
-            panic!("Couldn't parse the row {:?}", batch);
-        });
+    fn create_record_batch(&self, batch: String) -> RecordBatch {
+        let mut batch_bytes = batch.into_bytes();
+        let columnar: Vec<Vec<Value>> = simd_json::serde::from_slice(&mut batch_bytes)
+            .unwrap_or_else(|e| panic!("Couldn't parse the row: {:?}", e));
 
         let columns: Vec<Arc<dyn Array>> = (0..columnar.len())
             .map(|i| {
                 Self::types_to_arrow_array(&columnar[i], &self.types[i])
             }).collect();
+
         RecordBatch::try_new(
             self.schema_arc.clone(),
             columns
@@ -239,16 +242,19 @@ impl ParquetSession {
                 let col_vec: StringArray  = column.into_iter().map(|v| {
                     match v {
                         Value::Null => {None}
-                        v => {
+                        Value::String(s) => {
                             let
-                              mut entry = v.as_str().unwrap().to_string();
-                              entry = entry.trim_ascii().to_string();
-                            if entry.to_ascii_uppercase() == "NULL"{
+                              s = s.trim_ascii();
+                            if s.to_ascii_uppercase() == "NULL"{
                               None
                             }
                             else {
-                              Some(entry.to_string())
+                              Some(s.to_string())
                             }
+                        }
+                        _ => {
+                            let el = v.to_string();
+                            Some(el)
                         }
                     }
 
