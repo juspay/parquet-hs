@@ -7,7 +7,7 @@ use arrow_schema::Field;
 use arrow::datatypes::Schema;
 use parquet::schema::types::ColumnPath;
 // use serde_json::Value;
-use parquet::basic::Compression;
+use parquet::basic::{Compression, Encoding};
 use std::str::FromStr;
 use parquet::file::properties::BloomFilterPosition;
 use arrow::record_batch::RecordBatch;
@@ -135,6 +135,14 @@ impl ParquetSession {
             println!("set_compression_column_encodings : Key not found, not setting any compression encodings for columns");
             &empty
         });
+        let encoding_col_names = props_json.get("set_encoding_column_names").and_then(|v| v.get("columns")).and_then(|v| v.as_array()).unwrap_or_else(|| {
+            println!("set_compression_column_encodings : Key not found, not setting any encodings for columns");
+            &empty
+        });
+        let encoding_col_encodings = props_json.get("set_column_encodings").and_then(|v| v.get("encodings")).and_then(|v| v.as_array()).unwrap_or_else(|| {
+            println!("set_compression_column_encodings : Key not found, not setting any encodings for columns");
+            &empty
+        });
 
         let max_row_group_size = props_json.get("set_max_row_group_size").and_then(|v| v.as_u64()).unwrap_or(4056);
 
@@ -152,7 +160,23 @@ impl ParquetSession {
         if compression_col_names.len() == compression_col_encodings.len() {
             for i in 0..compression_col_names.len(){
                 let c = Compression::from_str(compression_col_encodings[i].as_str().unwrap_or("UNCOMPRESSED")).unwrap();
-                props = props.set_column_compression(ColumnPath::from(compression_col_names[i].to_string()), c);
+                props = props.set_column_compression(ColumnPath::from(compression_col_names[i].as_str().unwrap_or_else(|| {
+                    println!("couldn't decode the column in set_compression_column_names: {}", compression_col_names[i].to_string());
+                    "placeholder_column"
+                })), c);
+            }
+        }
+        else {
+            println!("Couldn't set column compression encoding as number of cols doesn't match given number of encodings");
+        }
+
+        if encoding_col_names.len() == encoding_col_encodings.len() {
+            for i in 0..encoding_col_names.len(){
+                let e = Encoding::from_str(encoding_col_encodings[i].as_str().unwrap_or("PLAIN")).unwrap();
+                props = props.set_column_encoding(ColumnPath::from(encoding_col_names[i].as_str().unwrap_or_else(|| {
+                    println!("couldn't decode the column in set_encoding_column_names {}", compression_col_names[i].to_string());
+                    "placeholder_column"
+                })), e);
             }
         }
         else {
