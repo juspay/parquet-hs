@@ -136,11 +136,11 @@ impl ParquetSession {
             &empty
         });
         let encoding_col_names = props_json.get("set_encoding_column_names").and_then(|v| v.get("columns")).and_then(|v| v.as_array()).unwrap_or_else(|| {
-            println!("set_compression_column_encodings : Key not found, not setting any encodings for columns");
+            println!("set_encoding_column_names : Key not found, not setting any encodings for columns");
             &empty
         });
         let encoding_col_encodings = props_json.get("set_column_encodings").and_then(|v| v.get("encodings")).and_then(|v| v.as_array()).unwrap_or_else(|| {
-            println!("set_compression_column_encodings : Key not found, not setting any encodings for columns");
+            println!("set_column_encodings : Key not found, not setting any encodings for columns");
             &empty
         });
 
