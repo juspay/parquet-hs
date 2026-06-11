@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-parquet = "55.0.0"
+parquet = "57.0.0"
 serde = { version = "1.0.157", features = ["derive"] }
 serde_json = {version = "1.0.94", features = ["raw_value"] }
 serde_derive = "1.0.157"
-arrow = "55.0.0"
-arrow-schema = "55.0.0"
+arrow = "57.0.0"
+arrow-schema = "57.0.0"
 indexmap = { version = "2.0", features = ["serde"] }
 chrono = "0.4.41"
 simd-json = { version = "0.14.3", features = ["serde"] }
