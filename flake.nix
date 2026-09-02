@@ -9,7 +9,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         ghcPkgs = pkgs.haskell.packages.ghc96;
-        parquet-rs-outputs = import ./parquet-rs {inherit pkgs;};
+        parquet-rs-outputs = import ./parquet-rs {inherit pkgs; cargoDepsPkgs = pkgs;};
         parquetrs = parquet-rs-outputs.parquetrs;
         parquet-rs-dev-shell = parquet-rs-outputs.parquetrs-dev;
         parquetPkgs =

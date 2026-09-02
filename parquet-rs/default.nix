@@ -1,7 +1,26 @@
-{pkgs,...}:
+{ pkgs
+, cargoDepsPkgs ? null
+, ...
+}:
 
 let
   cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+
+  lockedNixpkgs =
+    let
+      node = (builtins.fromJSON (builtins.readFile ../flake.lock)).nodes.nixpkgs.locked;
+    in
+    builtins.fetchTarball {
+      url = "https://github.com/${node.owner}/${node.repo}/archive/${node.rev}.tar.gz";
+      sha256 = node.narHash;
+    };
+
+  depsPkgs =
+    if cargoDepsPkgs != null then
+      cargoDepsPkgs
+    else
+      import lockedNixpkgs { inherit (pkgs.stdenv.buildPlatform) system; };
+
   rust-toolchain = pkgs.symlinkJoin {
     name = "rust-toolchain";
     paths = [ pkgs.rustc pkgs.cargo pkgs.cargo-watch pkgs.rust-analyzer pkgs.rustPlatform.rustcSrc ];
@@ -12,7 +31,7 @@ in
   parquetrs = pkgs.rustPlatform.buildRustPackage {
     inherit (cargoToml.package) name version;
     src = ./.;
-    cargoLock.lockFile = ./Cargo.lock;
+    cargoDeps = depsPkgs.rustPlatform.importCargoLock { lockFile = ./Cargo.lock; };
     buildInputs = if pkgs.stdenv.isDarwin then [ pkgs.fixDarwinDylibNames ] else [ ];
     postInstall = ''
       ${if pkgs.stdenv.isDarwin then "fixDarwinDylibNames" else ""}
